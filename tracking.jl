@@ -8,6 +8,22 @@ include("ags_apertures.jl")
 # =================================================================
 # Set Machine Parameters
 
+mm_ad_misalignments = 1e-2*randn(length(mm_ad))
+mm_af_misalignments = 1e-2*randn(length(mm_af))
+mm_bd_misalignments = 1e-2*randn(length(mm_bd))
+mm_bf_misalignments = 1e-2*randn(length(mm_bf))
+mm_cd_misalignments = 1e-2*randn(length(mm_cd))
+mm_cf_misalignments = 1e-2*randn(length(mm_cf))
+
+setproperty!.(values(mm_ad), :x_offset, mm_ad_misalignments)
+setproperty!.(values(mm_af), :x_offset, mm_af_misalignments)
+setproperty!.(values(mm_bd), :x_offset, mm_bd_misalignments)
+setproperty!.(values(mm_bf), :x_offset, mm_bf_misalignments)
+setproperty!.(values(mm_cd), :x_offset, mm_cd_misalignments)
+setproperty!.(values(mm_cf), :x_offset, mm_cf_misalignments)
+
+
+#=
 qh_misalignments = 3.4e-4*randn(length(qh))
 qv_misalignments = 3.4e-4*randn(length(qv))
 qp_misalignments = 3.4e-4*randn(length(qp))
@@ -16,6 +32,7 @@ qp_misalignments = 3.4e-4*randn(length(qp))
 setproperty!.(values(qh), :x_offset, qh_misalignments)
 setproperty!.(values(qv), :x_offset, qv_misalignments)
 setproperty!.(values(qp), :x_offset, qp_misalignments)
+=#
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -53,8 +70,8 @@ beam = normal_coupling_gaussian(frame=frame,
 # =================================================================
 # Set Controls
 
-HTUNE_CTRL_it = 100*(2*rand()-1)
-VTUNE_CTRL_it = 100*(2*rand()-1)
+#HTUNE_CTRL_it = 100*(2*rand()-1)
+#VTUNE_CTRL_it = 100*(2*rand()-1)
 
 for ele_name in keys(I_dhc) 
     I_dhc[ele_name] = 10*(2*rand()-1)
