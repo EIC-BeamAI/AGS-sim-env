@@ -13,12 +13,12 @@ include("ags_apertures.jl")
 # Configuration Constants
 
 # Fixed tune controls (configurable but fixed for now)
-const HTUNE_CTRL_fixed = 0.0
-const VTUNE_CTRL_fixed = 0.0
+const HTUNE_CTRL_fixed = 500
+const VTUNE_CTRL_fixed = 500
 
 # Action bounds for dipole corrector currents
-const I_dhc_bounds = (-10.0, 10.0)
-const I_dvc_bounds = (-10.0, 10.0)
+const I_dhc_bounds = (-25.0, 25.0)
+const I_dvc_bounds = (-25.0, 25.0)
 
 # Default misalignment sigma
 const DEFAULT_MISALIGN_SIGMA = 3.4e-4
@@ -36,10 +36,10 @@ const BEAM_ALPHA2 = 1.02
 const BEAM_COUPLING = (q1q2=0.00, q1p2=0.00, p1q2=0.00, p1p2=0.00)
 const BEAM_BUNCH_POPULATION = 2.5e10
 
-# Electrical RMS noise constants
-const _dS = 1e-3
-const _dX = 1e-3
-const _dY = 1e-3
+# Electrical RMS noise constants (set to zero for deterministic RL training)
+const _dS = 0.0
+const _dX = 0.0
+const _dY = 0.0
 const _pue_cal = 2.5e9
 
 # =================================================================
@@ -256,12 +256,20 @@ end
 """
     get_reward()
 
-Compute the reward as the sum of S values across all BPMs.
-This is the total beam signal observed at all BPMs.
+Compute the reward based on beam centering at BPMs.
+Since beam survival is ~constant (all particles survive), the reward
+focuses on minimizing the RMS beam offset across all BPMs.
+- Dx, Dy (beam position) penalize off-center beam — closer to zero is better
+Reward = -lambda * sqrt(mean(Dx^2 + Dy^2))
+The agent's goal is to steer the beam as close to center as possible at all BPMs.
 """
 function get_reward()
     obs = measure_observables()
-    return sum(obs[name][:S] for name in keys(obs))
+    lambda = 1000.0
+    total_offset = sum(obs[name][:Dx]^2 + obs[name][:Dy]^2 for name in keys(obs))
+    n_bpm = length(keys(obs))
+    rms_offset = sqrt(total_offset / n_bpm)
+    return -lambda * rms_offset
 end
 
 """
@@ -269,7 +277,7 @@ end
 
 Take a single step in the environment.
 1. Set the action (control currents)
-2. Measure observables
+2. Measure observables (done once, reused for state & reward)
 3. Compute state and reward
 Returns: (state::Vector{Float64}, reward::Float64, done::Bool)
 """
@@ -277,11 +285,33 @@ function step(action::Vector{Float64})
     # Set the controls
     set_action(action)
 
-    # Get reward
-    reward = get_reward()
+    # Measure observables once and reuse for both state and reward
+    obs = measure_observables()
+
+    # Compute reward (RMS beam offset penalty)
+    total_offset = sum(obs[name][:Dx]^2 + obs[name][:Dy]^2 for name in keys(obs))
+    n_bpm = length(keys(obs))
+    rms_offset = sqrt(total_offset / n_bpm)
+    reward = -1000.0 * rms_offset
 
     # Build state vector
-    state = get_state()
+    state = Float64[]
+
+    # Add BPM observables in sorted order
+    bpm_names = sort(collect(keys(obs)))
+    for name in bpm_names
+        push!(state, obs[name][:S])
+        push!(state, obs[name][:Dx])
+        push!(state, obs[name][:Dy])
+    end
+
+    # Add current control values in sorted order
+    for name in sort(collect(keys(I_dhc)))
+        push!(state, I_dhc[name])
+    end
+    for name in sort(collect(keys(I_dvc)))
+        push!(state, I_dvc[name])
+    end
 
     # Single-step optimization, so always done
     done = true

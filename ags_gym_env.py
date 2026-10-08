@@ -51,7 +51,7 @@ class AGS_GymEnv(gym.Env):
         self,
         h_tune: float = 0.0,
         v_tune: float = 0.0,
-        misalign_sigma: float = 3.4e-4,
+        misalign_sigma: float = 3.4e-3,
         render_mode=None,
     ):
         """
@@ -83,11 +83,11 @@ class AGS_GymEnv(gym.Env):
         # The project directory contains the AGS_GymEnv package, so we just
         # activate it and use the package directly
         init_code = f'''
-using Pkg
-Pkg.activate("{project_dir}")
-using AGS_GymEnv
-AGS_GymEnv
-'''
+            using Pkg
+            Pkg.activate("{project_dir}")
+            using AGS_GymEnv
+            AGS_GymEnv
+            '''
         self._julia_env = juliacall.Main.seval(init_code)
         self._juliacall = juliacall
 
@@ -224,9 +224,15 @@ if __name__ == "__main__":
 
     state, _ = env.reset()
     print(f"Initial state shape: {state.shape}")
+    old_state = state
+    print(f"dS State before action: {state[::3]}")
+    print(f"dX State before action: {state[1::3]}")
 
     # Test a zero action
     action = np.zeros(env.action_size)
     state, reward, done, truncated, info = env.step(action)
+    print(f"dS State after action: {state[::3]}")
+    print(f"dX State after action: {state[1::3]}")
+    print(f"Change in state:  {abs(old_state-state)}")
     print(f"Reward: {reward}")
     print(f"Done: {done}")
