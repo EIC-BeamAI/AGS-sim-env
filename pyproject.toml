@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ags-sim-env"
+version = "0.1.0"
+description = "Gymnasium environment wrapping the AGS injection beam-tracking simulation (Julia/BeamTracking via PythonCall)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "gymnasium>=0.29",
+    # must match the PythonCall version pinned in Manifest.toml (0.9.35);
+    # a mismatch (e.g. juliacall 0.9.36) fails with "PythonCall.jl did not start properly"
+    "juliacall==0.9.35",
+]
+# `import gymnasium`; Gymnasium 1.x removed plugin loading, so 1.x users
+# `import ags_gymnasium` once (registers on import) before gym.make().
+[project.entry-points."gymnasium.env"]
+AGS = "ags_gymnasium"
+
+[project.entry-points."gymnasium.envs"]
+AGS = "ags_gymnasium"
+
+[project.scripts]
+ags-soct-run = "soct_launcher:main"
+ags-install-soct = "soct_setup:main"
+
+[tool.setuptools]
+py-modules = ["ags_env", "ags_gymnasium", "soct_integration", "soct_launcher",
+              "soct_setup"]

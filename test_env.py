@@ -4,15 +4,24 @@ Test script for the AGS Gymnasium environment.
 Run with: python test_env.py
 """
 
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from soct_integration import configure_julia
+
+configure_julia()  # must run before importing juliacall (pulled in by ags_env)
+
 import numpy as np
 import gymnasium as gym
 
 
 def test_env_construction():
     """Test that the environment can be constructed."""
-    from ags_gym_env import AGS_GymEnv
+    from ags_env import AGSEnv
 
-    env = AGS_GymEnv()
+    env = AGSEnv()
     print("✓ Environment constructed successfully")
     return env
 
@@ -89,29 +98,20 @@ def test_action_bounds(env):
     """Test that action bounds are correct."""
     low = env.action_space.low
     high = env.action_space.high
-    assert np.all(low == -10.0), f"Expected low bound -10.0, got {low[0]}"
-    assert np.all(high == 10.0), f"Expected high bound 10.0, got {high[0]}"
+    # bounds are defined by AGS_GymEnv.jl I_dhc/dvc_bounds (currently +/-25 A)
+    assert np.all(low == -25.0), f"Expected low bound -25.0, got {low[0]}"
+    assert np.all(high == 25.0), f"Expected high bound 25.0, got {high[0]}"
     print(f"✓ Action bounds: [{low[0]}, {high[0]}]")
 
 
-def test_with_gym_registry():
-    """Test that the environment can be registered with gymnasium."""
-    # Check if the environment is already registered
-    registered = "AGS_GymEnv" in gym.envs.registry.keys() or \
-                 "AGSGymEnv" in gym.envs.registry.keys()
+def test_with_gym_spaces():
+    """Test that spaces are full float boxes compatible with gymnasium sampling."""
+    from ags_env import AGSEnv
 
-    if not registered:
-        # Try to create without registration (direct class instantiation)
-        from ags_gym_env import AGS_GymEnv
-        env = AGS_GymEnv()
-        print("✓ Direct instantiation works")
-    else:
-        env = gym.make("AGS_GymEnv")
-        print("✓ Registered environment works")
-
-    state, _ = env.reset()
-    assert state.shape == (315,)
-    print(f"✓ Gym registered env test passed")
+    env = AGSEnv()
+    sample = env.action_space.sample()
+    assert env.action_space.contains(sample), "action_space.sample() outside its own box"
+    print("✓ gymnasium spaces consistent")
 
 
 def main():
@@ -149,8 +149,8 @@ def main():
     test_random_action(env)
     print()
 
-    print("8. Testing gym registration...")
-    test_with_gym_registry()
+    print("8. Testing gymnasium space consistency...")
+    test_with_gym_spaces()
     print()
 
     print("=" * 60)
