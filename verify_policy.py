@@ -15,6 +15,8 @@ import jlab_opt_control.envs as eg
 register_env(eg)
 import jlab_opt_control.agents
 
+# NOTE: this default points at a PRE-REFACTOR (quad-error model) run — pass a run
+# directory produced by the current main-magnet env as argv[1] for meaningful numbers.
 RUN = (sys.argv[1] if len(sys.argv) > 1 else
        "results/ags_td3_updated_env/"
        "index000_env_AGS-Injection-v0_agent_KerasTD3-v0_hash_a4105f9_time_20261008-174714")

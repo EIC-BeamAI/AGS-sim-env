@@ -21,7 +21,7 @@ def configure_julia():
         if not cands:
             raise RuntimeError(
                 "soct_integration: no Julia 1.12 under ~/.julia/juliaup.\n"
-                "Install/activate it (`juliaup default 1`) or export "
+                "Install it (`juliaup add 1.12 && juliaup default 1.12`) or export "
                 "PYTHON_JULIACALL_EXE and PYTHON_JULIACALL_LIB yourself."
             )
         jlhome = cands[-1]

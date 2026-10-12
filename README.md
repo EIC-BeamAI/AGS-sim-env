@@ -10,10 +10,13 @@ julia>  ]instantiate
 ## Python Gymnasium Environment
 
 This package includes a Python gymnasium environment that interfaces with the
-Julia simulation via [juliacall](https://github.com/JuliaPy/PythonCall.jl)
-(the Python side of PythonCall.jl). To train an agent with SciOptControlToolkit,
-use `soct_launcher.py` / the `ags-soct-run` console script — see `run_guide.md`
-for the full quickstart.
+Julia beam-tracking simulation via [juliacall](https://github.com/JuliaPy/PythonCall.jl)
+(the Python side of PythonCall.jl). All physics (machine, apertures, beam, tracking)
+lives in `src/tracking.jl` — the single source of truth; `src/AGS_GymEnv.jl` is a thin
+facade exposing only measurement/control primitives, and all RL logic (state assembly,
+reward, action layout, knobs) lives in `ags_env.py`. To train an agent with
+SciOptControlToolkit, use `soct_launcher.py` / the `ags-soct-run` console script — see
+`run_guide.md` for the full quickstart.
 
 ### Installation
 
@@ -56,7 +59,7 @@ print(f"State shape: {state.shape}")  # (315,)
 
 action = env.action_space.sample()    # 96-dim, ±25 A
 next_state, reward, terminated, truncated, info = env.step(action)
-print(f"Reward: {reward}")            # ~-110 with zero correctors
+print(f"Reward: {reward}")            # ~-50 with zero correctors (mm errors)
 print(f"Terminated: {terminated}")    # True (single-step optimization)
 ```
 
@@ -71,11 +74,12 @@ configure_julia()  # pins Julia 1.12 for juliacall — before juliacall is impor
 from ags_env import AGSEnv
 
 # h_tune / v_tune fixed during episodes but configurable;
-# misalign_sigma = quadrupole misalignment σ, drawn ONCE at construction
+# misalign_sigma = MAIN-MAGNET misalignment σ (m), drawn ONCE at construction
+# over the six mm_* groups (default 1e-2, matching src/tracking.jl)
 env = AGSEnv(
     h_tune=0.0,
     v_tune=0.0,
-    misalign_sigma=3.4e-4,
+    misalign_sigma=1e-2,
 )
 ```
 

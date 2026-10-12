@@ -20,11 +20,14 @@ environment, the gym wrapper (`ags_env.py`), the Gymnasium registration module
 ├── AGS-sim-env/              # the environment (Julia project + Python glue, all tracked here)
 │   ├── pyproject.toml        #   pip-installable (editable!), gymnasium entry points, ags-soct-run
 │   ├── CondaPkg.toml         #   pins CondaPkg's embedded Python for PythonCall (§2.3)
-│   ├── ags_env.py            #   gym wrapper (loads src/AGS_GymEnv.jl through juliacall)
+│   ├── ags_env.py            #   gym wrapper — ALL RL glue: state/reward/action/knobs (§4)
 │   ├── ags_gymnasium.py      #   import-once Gymnasium registration (gym.make works after)
 │   ├── soct_launcher.py      #   pin Julia → import juliacall → register env → run SOCT driver
 │   ├── verify_policy.py      #   load any checkpoint vs zero-action; prints reward + S survival
-│   └── src/AGS_GymEnv.jl     #   the environment proper (state/action/reward)
+│   └── src/
+│       ├── AGS_GymEnv.jl     #   THIN facade: include(tracking.jl) + primitives only
+│       ├── tracking.jl       #   PHYSICS single source: machine, beam, tracking kernel
+│       └── ags_apertures.jl  #   lattice/apertures/power-supplies (included by tracking.jl)
 └── SciOptControlToolkit/     # SOCT   (agents, driver, buffers — untouched)
 ```
 
@@ -50,7 +53,7 @@ conda --version && juliaup --version && julia --version
 cd <workspace-dir>
 git clone https://github.com/eiad-hamwi/AGS-sim-env.git
 git clone https://github.com/JeffersonLab/SciOptControlToolkit.git
-cd AGS-sim-env && git checkout 1-gym-env && cd ..    # branch carrying the gym env + updated tracking.jl
+cd AGS-sim-env && git checkout 1-gym-env && cd ..    # branch with the gym env facade over tracking.jl
 ```
 
 Keep both as real `git clone` directories — the driver reads a git hash from the CWD at startup.
@@ -155,9 +158,13 @@ python -m jlab_opt_control.drivers.run_continuous \
 ```
 
 Look for `Created gym environment: AGS-Injection-v0`, `Size of State Space -> 315`,
-`Size of Action Space -> 96`, and `Training Episodic Reward` lines in the **random-policy
-band ≈ −110…−130** (the lattice is re-drawn unseeded per process — see §5). First run
-compiles the Julia stack (a few minutes); steady state ≲1 s/episode.
+`Size of Action Space -> 96`. Do **not** judge reward against a fixed band: under the
+main-magnet error model every process freezes a fresh lattice whose zero-action reward
+spans **≈ −45 … −130** (measured draws: −43.7, −83.1, −105.9, −126.2), and that baseline
+is also where the random policy starts (±25 A random currents barely move it). Any
+negative reward with 315/96 = wiring success; interpretation in §5. First run compiles
+the Julia stack (a few minutes); steady state measures in ~40–100 ms/episode (faster
+when the beam dies early).
 
 Expected noise in any run's log (harmless, CPU fallback family):
 - `ERROR:CfgLogger:Problem with key request using None/2` — known SOCT cfg-logger quirk.
@@ -193,12 +200,14 @@ python -m jlab_opt_control.drivers.run_continuous \
 
 (Requires the `__init__.py` block above — or run through the `ags-soct-run` fallback instead.)
 
-Expect: first episode ~40 s (Julia first-compile inside the process), steady state ~0.3–1.5
-s/episode → **10k episodes ≈ 1 hour** on CPU. First 2500 episodes (`warmup_size`) are pure random
-exploration — the reward only starts moving after that.
+Expect: first episode ~40 s (Julia first-compile inside the process), then ~0.3–1.5
+s/episode → **10k episodes ≈ 1 hour** on CPU. Under the mm model the ring measurement
+itself is only ~40–100 ms (the kernel breaks early once the beam dies), so TF updates
+now take the larger share of episode time. First 2500 episodes (`warmup_size`) are pure
+random exploration — the reward only starts moving after that.
 
-Known-good reference: the 2026-10-08 run went **−117.6 → −107** (best −106.9 @ ep 9950). See §5
-for what "good" means on this env — do not chase −0.
+Stale reference (pre-refactor quad-error env): the 2026-10-08 run went −117.6 → −107.
+Those numbers do NOT apply to the main-magnet model — re-baseline from §5 instead.
 
 ### 3.2 Common flags
 
@@ -223,25 +232,34 @@ shorter than 2500 episodes acts randomly — a 100-episode run only verifies wir
 
 ## 4. Environment configuration
 
-There is **no env cfg file** for this environment. Knobs:
+**Architecture:** the physics single source of truth is `src/tracking.jl` (machine via
+`ags_apertures.jl`, beam, and the tracking kernel `measure_observables!`), kept identical to
+the physics branch. `src/AGS_GymEnv.jl` is a **thin facade** that `include`s it and exposes
+only marshalling primitives (`redraw_misalignments!`, `set_currents!`, `zero_currents!`,
+`set_tunes!`, one-pass `measure`). Everything RL-specific — state assembly, reward, action
+layout/bounds, episode logic, knobs — lives in `ags_env.py`. **Updating physics = updating
+`tracking.jl` only; the env picks it up on the next recompile.**
+
+There is **no env cfg file**. Knobs (all Python-side, `ags_env.py`):
 
 | knob | where | default | effect |
 |---|---|---|---|
-| `misalign_sigma` | `AGSEnv.__init__` (set via the launcher's `register(...)` kwargs, `soct_launcher.py`) | `3.4e-4` | quad misalignment σ (m); drawn **once at env construction** — the lattice is frozen for the whole run |
+| `misalign_sigma` | `AGSEnv.__init__` (set via the launcher's `register(...)` kwargs, `soct_launcher.py`) | `1e-2` | main-magnet x misalignment σ (m), drawn over the six `mm_*` groups **once at env construction** — the lattice is frozen for the whole run |
 | `h_tune`, `v_tune` | same | `0.0` | fixed tune-control settings (not actions) |
-| corrector bounds | `AGS_GymEnv.jl` `I_dhc/dvc_bounds` | ±25 | action box (A) — the binding performance limit |
-| reward λ | `AGS_GymEnv.jl` `get_reward` | 1000 | scale on −λ·RMS offset |
-| BPM noise | `AGS_GymEnv.jl` `_dS/_dX/_dY` | 0.0 | electrical noise (zero = deterministic) |
-| beam params | `AGS_GymEnv.jl` `BEAM_*` consts | — | emittance, centroid, dispersion, population |
+| `bpm_noise` | same | `(0, 0, 0)` | electrical RMS noise on S, Dx, Dy (zero = deterministic) |
+| corrector bounds | `ags_env.py` `ACTION_BOUND` | ±25 | action box (A) — the binding performance limit |
+| reward λ | `ags_env.py` `LAMBDA_REWARD` | 1000 | scale on −λ·RMS offset |
+| beam params | `src/tracking.jl` beam block (physics-side, by design) | — | emittance, centroid, dispersion, population |
 
-- **State (315)** = 73 BPMs × (S, Dx, Dy) sorted by BPM name + 48 `I_dhc` + 48 `I_dvc` currents.
+- **State (315)** — layout identical across the refactor, **old checkpoints stay compatible**:
+  73 BPMs × (S, Dx, Dy) sorted by BPM name + 48 `I_dhc` + 48 `I_dvc` currents.
   `S` = charge·alive_fraction·cal (10.014 = full survival); `Dx/Dy` = surviving-bunch centroid × S.
 - **Action (96)**, box ±25: **block layout** — first 48 = sorted `dhc`, next 48 = sorted `dvc`
-  (the Julia `set_action` mapping is authoritative).
+  (the `AGSEnv.step` mapping in `ags_env.py` is now authoritative).
 - **Reward** = −1000 · RMS(signal-weighted orbit offset) — maximize, max 0. One caveat: since
-  `Dx = x̄·S`, **total beam loss also gives reward 0**. Full-survival solutions bottom out near
-  −105 ± a few (see §5), so anything drifting toward 0 is loss, not skill. `src/tracking.jl` is a
-  standalone analysis script (main-magnet misalignments) — it is *not* part of the env path.
+  `Dx = x̄·S`, **total beam loss also gives reward 0** — anything drifting toward 0 is loss,
+  not skill. Under the main-magnet error model the best achievable reward is the box-constrained
+  least-squares optimum at ±25 A corrector authority — measured numbers in §5.
 
 ## 5. Reviewing the results
 
@@ -263,11 +281,19 @@ A run folder contains:
 tensorboard --logdir results/          # or one run dir; port 6006; SSH-tunnel if remote
 ```
 
-A healthy AGS run: flat ≈ −117 through ep 2500 (warmup), first gain ~3000, ≈ −109 by ~4000,
-slow grind toward **−105…−108**. **This env is near-solved by construction:** the ±25 A corrector
-authority bounds the best achievable reward at the box-constrained least-squares optimum,
-measured ≈ −100…−105 (zero-corrector baseline ≈ −110…−118). Inference reward in that band with
-all S ≈ 10.014 *is* success; big positive swings mean beam loss, not learning.
+Post-refactor baselines (main-magnet σ=1e-2, measured 2026-10-12): the **zero-corrector
+reward itself spans −44…−126 depending on the drawn lattice** (four fresh processes), and
+random policy ≈ that process's zero-action baseline. On a single frozen lattice, a
+linearized box-constrained least-squares solve recovers only **≈ +3…+6** above its own
+baseline (−49.3 → −44.0 with ~10/96 correctors saturated) — with σ this large even
+near-optimal correctors cannot restore the orbit, and the binding limit is **aperture
+loss**, not ±25 A authority. **Read the reward with care under this model:** beam loss
+starts at zero action (S reaches 0 at some BPMs), and dead BPMs contribute (0,0) to the
+RMS — **losing beam RAISES the reward; the metric is confounded with survival.** Check
+every gain against the S vector (all S ≈ 10.014 = full survival; `verify_policy.py`
+prints both) or it may just be a darker machine. A healthy run plateaus at *its own*
+zero-action baseline through ep 2500 (warmup), then improves by a few units while S
+stays up.
 
 ### Evaluating a saved policy
 
@@ -281,8 +307,9 @@ per-checkpoint reward vs zero-action plus the min/max S survival check
 (`python ../AGS-sim-env/verify_policy.py <run_dir>` from SOCT).
 
 Note: **misalignments are re-drawn unseeded at env construction**, so every new process
-(verification, `--inference` runs, retraining) evaluates a *different frozen lattice*. Expect
-evaluation rewards to differ by a few units run-to-run — that is normal, not instability.
+(verification, `--inference` runs, retraining) evaluates a *different frozen lattice*.
+Under the main-magnet model the run-to-run spread is **tens of units**, not a few —
+compare checkpoints/inference runs only within one process, or seed the draw yourself.
 
 ## 6. Notes
 
@@ -290,8 +317,9 @@ evaluation rewards to differ by a few units run-to-run — that is normal, not i
   batch 256 nets are small, CPU ≈ fine. `Could not find cuda drivers` warnings are expected.
 - Everything relative (run dirs, git hash) keys off the CWD you launch from — stay inside
   `SciOptControlToolkit/`.
-- Episode clock note: `AGS_GymEnv.jl` re-measures the ring on every `reset()` and `step()`
-  (single-pass sampling, ≲0.3 s each) — that dominates the episode time, not TF.
+- Episode clock note: `AGSEnv` (`ags_env.py`) runs the `tracking.jl` kernel once per
+  `reset()`/`step()` (single-pass sampling, ≲0.1 s — faster when the beam dies early);
+  with the mm model the TF agent update, not the measurement, is often the bottleneck.
 - Three Julia/Python mismatch failure families — all §2.2–2.3 setup problems, not code bugs:
   (1) `sys.so ... cannot open` → the default channel is not 1.12 (§2.2); (2) `soct_integration:
   no Julia 1.12 under ~/.julia/juliaup` → only 1.13+ is installed (§2.2); (3) `Could not find
