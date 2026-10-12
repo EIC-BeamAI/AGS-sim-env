@@ -1,0 +1,8 @@
+# Pin the Python that CondaPkg/PythonCall uses for standalone Julia runs and
+# precompilation. Without this, CondaPkg resolves the bare "python" spec to the
+# newest conda-forge build (3.15 alpha as of 2026-10), which ships no shared
+# libpython — PythonCall then dies in C.__init__ with
+# "Could not find Python library for Python executable .../.CondaPkg/...".
+# Keep in range with the host conda env's Python (env.yaml: python=3.13).
+[deps]
+python = "3.13.*"

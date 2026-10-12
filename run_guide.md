@@ -19,6 +19,7 @@ environment, the gym wrapper (`ags_env.py`), the Gymnasium registration module
 ./                    # any workspace dir
 ├── AGS-sim-env/              # the environment (Julia project + Python glue, all tracked here)
 │   ├── pyproject.toml        #   pip-installable (editable!), gymnasium entry points, ags-soct-run
+│   ├── CondaPkg.toml         #   pins CondaPkg's embedded Python for PythonCall (§2.3)
 │   ├── ags_env.py            #   gym wrapper (loads src/AGS_GymEnv.jl through juliacall)
 │   ├── ags_gymnasium.py      #   import-once Gymnasium registration (gym.make works after)
 │   ├── soct_launcher.py      #   pin Julia → import juliacall → register env → run SOCT driver
@@ -28,7 +29,18 @@ environment, the gym wrapper (`ags_env.py`), the Gymnasium registration module
 ```
 
 Prerequisites: [conda](https://docs.conda.io/) and [juliaup](https://github.com/JuliaLang/juliaup)
-(`curl -fsSL https://install.julialang.org | sh`).
+— don't assume either is installed or on `PATH`; probe first:
+
+```bash
+conda --version && juliaup --version && julia --version
+```
+
+- No conda: install [Miniconda](https://docs.conda.io/en/latest/miniconda.html) and run
+  `~/miniconda3/bin/conda init bash`, then restart the shell — an installed-but-uninitialized
+  conda is invisible to §2.4.
+- No juliaup/julia: `curl -fsSL https://install.julialang.org | sh -s -- --yes`, then
+  `. ~/.bashrc` (`--yes` = non-interactive). A fresh install defaults to `release` (1.13 now);
+  §2.2 re-pins it to 1.12.
 
 ## 2. Setup
 
@@ -46,14 +58,20 @@ Keep both as real `git clone` directories — the driver reads a git hash from t
 ### 2.2 Julia toolchain (do this before anything Python)
 
 ```bash
-juliaup default 1          # 1.12.x — NOT the lts default 1.10
-julia --version            # must print 1.12.x
+juliaup add 1.12            # fresh juliaup ships only 'release' — 'default 1' errors until added
+juliaup default 1.12        # 1.12.x — NOT 'release'/'1' (that is 1.13.x now), NOT lts 1.10
+julia --version             # must print 1.12.x
 ```
 
 Why it matters: the Julia deps (BeamTracking/Beamlines stack) only load under Julia ≥ 1.12, and
-`juliacall` embeds whatever juliaup's *default* channel points at. On the default `lts` install
-you get `ERROR: could not load library ".../.juliaup/bin/../lib/julia/sys.so"` at
-`import juliacall` — that error is this mismatch, not a Python problem.
+`soct_integration.py` embeds juliacall from `~/.julia/juliaup/julia-1.12*` /
+`libjulia.so.1.12*` **only** — a newer default (today's `release` = 1.13.1, which plain
+`juliaup default 1` also resolves to) fails at registration with `RuntimeError:
+soct_integration: no Julia 1.12 under ~/.julia/juliaup`. juliacall embeds whatever juliaup's
+*default* channel points at, so `default 1.12` must stick. The older symptom of the same
+mismatch (e.g. the `lts` 1.10 default): `ERROR: could not load library
+".../.juliaup/bin/../lib/julia/sys.so"` at `import juliacall` — that error is this version
+problem, not a Python problem.
 
 ### 2.3 Julia project dependencies (once per machine)
 
@@ -69,6 +87,17 @@ Expect several minutes of precompilation. The Conda/pixi environment (`.CondaPkg
 gitignored) is created during this instantiate (precompile of AGS_GymEnv) or on the
 first Julia *run* inside PythonCall, whichever comes first — one-time, a few minutes.
 
+`CondaPkg.toml` (committed) pins the embedded Python: `[deps] python = "3.13.*"`. Keep it.
+CondaPkg's implicit spec is a bare `python`, which on 2026-10 conda-forge resolves to the
+**3.15 alpha — a build with no shared libpython** — and precompile of `AGS_GymEnv` /
+`BeamlinesPythonCallExt` then dies with `InitError: Could not find Python library for Python
+executable ".../.CondaPkg/.pixi/envs/default/bin/python"` ("during initialization of module
+C"). Spec form matters: CondaPkg merges this spec with PythonCall's own range into one pixi
+`version` string, so `"3.13.*"` parses, `"==3.13.*"` makes pixi exit 1 ("expected a version
+specifier but looks like a matchspec"), and bare `"3.13"` only works behind pixi's "ambiguous
+version specifier" warning (which a future pixi turns into an error). Keep the spec in range
+with `env.yaml`'s python.
+
 ### 2.4 Conda environment + SOCT install
 
 ```bash
@@ -83,6 +112,19 @@ pip install -e ../AGS-sim-env                   # the AGS env package — MUST b
                                                 # the Julia project lives in that checkout
 ```
 
+`conda env create` installs several GB of wheels (torch + TF + CUDA stack) — budget ~15 min
+and **wait for it to exit 0 before the pip steps below**. An interrupted pip section leaves a
+half-built env whose first driver run dies with `ModuleNotFoundError: No module named
+'tensorflow'` — that is an unfinished install, not a broken SOCT. Gate on it before continuing:
+
+```bash
+python -c "import tensorflow, torch, gymnasium; print('env ok')"
+```
+
+Equivalent if you prefer to skip env.yaml: `conda create -n ags_rl python=3.13` followed by
+`pip install -r requirements.txt` (env.yaml's pip section and requirements.txt are the same
+list). Either way use python 3.13 to match the tested configuration.
+
 Then register AGS inside SOCT — one command (idempotent; also accepts an explicit
 checkout path):
 
@@ -96,6 +138,15 @@ script. The driver resolves `AGS-Injection-v0` like a built-in then — the `gym
 branch of `create_and_configure_env`. Undo: `git checkout` those two files.
 
 ### 2.5 Verify
+
+A cheap wiring check first — it starts Julia but never touches TensorFlow, so import ordering
+is safe (and it isolates "Julia side broken" from "TF side broken"):
+
+```bash
+python -c "import ags_gymnasium; print('ags_gymnasium import OK')"
+```
+
+Then the real smoke run:
 
 ```bash
 cd SciOptControlToolkit                # any cwd works; logdirs/paths are self-located
@@ -241,5 +292,8 @@ evaluation rewards to differ by a few units run-to-run — that is normal, not i
   `SciOptControlToolkit/`.
 - Episode clock note: `AGS_GymEnv.jl` re-measures the ring on every `reset()` and `step()`
   (single-pass sampling, ≲0.3 s each) — that dominates the episode time, not TF.
-- If `import juliacall` ever fails with `sys.so ... cannot open`, Julia is not 1.12 (§2.2) or
-  juliaup's cache changed — the launcher's pins (§2.5) override auto-detection.
+- Three Julia/Python mismatch failure families — all §2.2–2.3 setup problems, not code bugs:
+  (1) `sys.so ... cannot open` → the default channel is not 1.12 (§2.2); (2) `soct_integration:
+  no Julia 1.12 under ~/.julia/juliaup` → only 1.13+ is installed (§2.2); (3) `Could not find
+  Python library ... .CondaPkg/...` → missing or stale `CondaPkg.toml` pin (§2.3). The
+  launcher pins (§2.5) override auto-detection for (1) and (2).
