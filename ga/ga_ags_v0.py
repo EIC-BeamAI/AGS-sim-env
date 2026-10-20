@@ -54,8 +54,8 @@ def main():
         return float(reward)
 
     def on_parents(ga, parents):
-        fitness = np.asarray(ga.last_generation_fitness)
-        indices = np.asarray(ga.last_generation_parents_indices)
+        fitness = np.array(ga.last_generation_fitness)
+        indices = np.array(ga.last_generation_parents_indices)
         ranking = np.argsort(fitness)[::-1]
 
         print(f"\n--- Parent Selection: Generation {ga.generations_completed + 1} ---")
@@ -84,9 +84,9 @@ def main():
             best_solution=solution,
             best_fitness=fitness,
             best_solution_idx=idx,
-            fitness_history=np.asarray(ga.best_solutions_fitness),
-            bpm_names=np.asarray(env.unwrapped.bpm_names),
-            control_names=np.asarray(env.unwrapped.control_names),
+            fitness_history=np.array(ga.best_solutions_fitness),
+            bpm_names=np.array(env.unwrapped.bpm_names),
+            control_names=np.array(env.unwrapped.control_names),
         )
 
         if fitness > previous_best:
