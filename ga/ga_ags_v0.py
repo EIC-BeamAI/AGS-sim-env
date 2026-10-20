@@ -50,7 +50,7 @@ def main():
 
     def fitness_func(ga, solution, idx):
         env.reset()
-        _, reward, _, _, _ = env.step(np.asarray(solution, dtype=np.float64))
+        _, reward, _, _, _ = env.step(np.array(solution, dtype=np.float64))
         return float(reward)
 
     def on_parents(ga, parents):
