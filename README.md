@@ -59,7 +59,7 @@ print(f"State shape: {state.shape}")  # (315,)
 
 action = env.action_space.sample()    # 96-dim, ±25 A
 next_state, reward, terminated, truncated, info = env.step(action)
-print(f"Reward: {reward}")            # ~-50 with zero correctors (mm errors)
+print(f"Reward: {reward}")            # ~6-27 (default = death lattice, see below)
 print(f"Terminated: {terminated}")    # True (single-step optimization)
 ```
 
@@ -74,12 +74,16 @@ configure_julia()  # pins Julia 1.12 for juliacall — before juliacall is impor
 from ags_env import AGSEnv
 
 # h_tune / v_tune fixed during episodes but configurable;
-# misalign_sigma = MAIN-MAGNET misalignment σ (m), drawn ONCE at construction
-# over the six mm_* groups (default 1e-2, matching src/tracking.jl)
+# misalign_sigma = MAIN-MAGNET misalignment sigma (m), drawn ONCE at
+# construction over the six mm_* groups. Default 1e-2 == the src/tracking.jl
+# load-time physics default: the beam dies at sector C (mean S ~0.06-0.27
+# of full, 53-68/73 BPMs dead) and NOTHING at +-25 A recovers it (solvers,
+# greedy, 100 random: all within +0.2 pt of baseline - study doc section 7).
+# Rewards therefore sit ~6-27 with no learnable gradient. For a learnable
+# task pass misalign_sigma=1.5e-3 (archived task point, study doc section 6).
 env = AGSEnv(
     h_tune=0.0,
     v_tune=0.0,
-    misalign_sigma=1e-2,
 )
 ```
 
@@ -96,7 +100,15 @@ env = AGSEnv(
   - 48 I_dhc current values (bounded ±25 A)
   - 48 I_dvc current values (bounded ±25 A)
 
-- **Reward**: −1000 × RMS signal-weighted orbit offset across all BPMs
+- **Objective / reward**: MAX OUT the BPM signal S (survived bunch intensity)
+  along the whole line:
+  `reward = 100 x mean(S/s_full) + 0.1 x (1 - min(RMS/rms_ref, 3))` in [0, 100].
+  Primary term is survival (losing beam can never raise the reward); the
+  small centering term only breaks full-survival plateau ties. `s_full` and
+  `rms_ref` are measured on the constructed lattice. The legacy
+  `-1000 x RMS(Dx,Dy)` centroid objective is superseded (it scored total
+  beam loss ~0, above every live state); it remains computable from the
+  state vector (Dx, Dy are observed).
 
 - **Episode**: Single-step optimization — agent sets controls once, observes
   outcome, receives reward, and episode terminates.

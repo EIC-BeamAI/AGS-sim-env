@@ -133,7 +133,7 @@ def main(argv=None):
         print("  cd <SciOptControlToolkit>")
         print("  python -m jlab_opt_control.drivers.run_continuous "
               "--env AGS-Injection-v0 --nepisodes 2 --logdir /tmp/ags_smoke")
-        print("expect: 'Created gym environment: AGS-Injection-v0', 315/96, reward ~-110...-120")
+        print("expect: 'Created gym environment: AGS-Injection-v0', 315/96, reward ~6-27 (default death lattice)")
     else:
         print("\nNothing to do — SOCT is already set up for AGS.")
     return 0

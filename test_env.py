@@ -96,11 +96,12 @@ def test_random_action(env):
 
 def test_action_bounds(env):
     """Test that action bounds are correct."""
+    from ags_env import ACTION_BOUND
     low = env.action_space.low
     high = env.action_space.high
-    # bounds are defined by ags_env.py ACTION_BOUND (currently +/-25 A)
-    assert np.all(low == -25.0), f"Expected low bound -25.0, got {low[0]}"
-    assert np.all(high == 25.0), f"Expected high bound 25.0, got {high[0]}"
+    # invariant: the action box mirrors ags_env.ACTION_BOUND
+    assert np.all(low == -ACTION_BOUND), f"Expected low bound -{ACTION_BOUND}, got {low[0]}"
+    assert np.all(high == ACTION_BOUND), f"Expected high bound {ACTION_BOUND}, got {high[0]}"
     print(f"✓ Action bounds: [{low[0]}, {high[0]}]")
 
 

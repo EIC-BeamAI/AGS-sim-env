@@ -158,13 +158,13 @@ python -m jlab_opt_control.drivers.run_continuous \
 ```
 
 Look for `Created gym environment: AGS-Injection-v0`, `Size of State Space -> 315`,
-`Size of Action Space -> 96`. Do **not** judge reward against a fixed band: under the
-main-magnet error model every process freezes a fresh lattice whose zero-action reward
-spans **≈ −45 … −130** (measured draws: −43.7, −83.1, −105.9, −126.2), and that baseline
-is also where the random policy starts (±25 A random currents barely move it). Any
-negative reward with 315/96 = wiring success; interpretation in §5. First run compiles
-the Julia stack (a few minutes); steady state measures in ~40–100 ms/episode (faster
-when the beam dies early).
+`Size of Action Space -> 96`. The default machine (mm σ = 1e-2 == tracking.jl's
+physics default) is a **death lattice**: the beam dies at sector C, so zero-action
+reward sits **≈ 6–27** depending on the per-process draw, and NO policy recovers it.
+Any value in that band with 315/96 = wiring success — do NOT expect learning here
+(§5). For a learnable task register with `misalign_sigma=1.5e-3`. Pre-migration
+logs are not comparable (different reward scale and lattice). First run compiles
+the Julia stack (a few minutes); dead-BPM episodes measure fast (~40–100 ms).
 
 Expected noise in any run's log (harmless, CPU fallback family):
 - `ERROR:CfgLogger:Problem with key request using None/2` — known SOCT cfg-logger quirk.
@@ -244,11 +244,11 @@ There is **no env cfg file**. Knobs (all Python-side, `ags_env.py`):
 
 | knob | where | default | effect |
 |---|---|---|---|
-| `misalign_sigma` | `AGSEnv.__init__` (set via the launcher's `register(...)` kwargs, `soct_launcher.py`) | `1e-2` | main-magnet x misalignment σ (m), drawn over the six `mm_*` groups **once at env construction** — the lattice is frozen for the whole run |
+| `misalign_sigma` | `AGSEnv.__init__` (or `register(...)` kwargs) | `1e-2` (physics default) | main-magnet x misalignment σ (m) over the six `mm_*` groups, drawn **once at env construction** — frozen for the run. **1e-2 = tracking.jl default: death lattice** (zero-action S 0.06–0.27 of full, 53–68/73 BPMs dead, solver ceiling ≈ baseline — study doc §7). Learnable task point: `1.5e-3` (§6, archived). ≤1e-3 lossless (max-S trivial) |
 | `h_tune`, `v_tune` | same | `0.0` | fixed tune-control settings (not actions) |
 | `bpm_noise` | same | `(0, 0, 0)` | electrical RMS noise on S, Dx, Dy (zero = deterministic) |
 | corrector bounds | `ags_env.py` `ACTION_BOUND` | ±25 | action box (A) — the binding performance limit |
-| reward λ | `ags_env.py` `LAMBDA_REWARD` | 1000 | scale on −λ·RMS offset |
+| reward | `ags_env.py` `_reward` | — | `100·mean(S/s_full) + SHAPE_W·(1 − min(RMS/rms_ref, SHAPE_CLIP))`, range 0–100, max = full S; `SHAPE_W=0.1`, `SHAPE_CLIP=3`; `s_full`/`rms_ref` measured per lattice |
 | beam params | `src/tracking.jl` beam block (physics-side, by design) | — | emittance, centroid, dispersion, population |
 
 - **State (315)** — layout identical across the refactor, **old checkpoints stay compatible**:
@@ -256,10 +256,13 @@ There is **no env cfg file**. Knobs (all Python-side, `ags_env.py`):
   `S` = charge·alive_fraction·cal (10.014 = full survival); `Dx/Dy` = surviving-bunch centroid × S.
 - **Action (96)**, box ±25: **block layout** — first 48 = sorted `dhc`, next 48 = sorted `dvc`
   (the `AGSEnv.step` mapping in `ags_env.py` is now authoritative).
-- **Reward** = −1000 · RMS(signal-weighted orbit offset) — maximize, max 0. One caveat: since
-  `Dx = x̄·S`, **total beam loss also gives reward 0** — anything drifting toward 0 is loss,
-  not skill. Under the main-magnet error model the best achievable reward is the box-constrained
-  least-squares optimum at ±25 A corrector authority — measured numbers in §5.
+- **Objective / reward**: MAX OUT BPM signal S along the whole line —
+  `100 · mean(S/s_full) + 0.1·(1 − min(RMS/rms_ref, 3))` ∈ [0, 100]. Losing
+  beam can never raise the reward; the centering term only orders
+  full-survival plateau configs (where the staircase S has no gradient).
+  The legacy −1000·RMS centroid reward is superseded (it scored total loss
+  ~0 above every live state); the best achievable S at 1.5e-3 is the
+  centroid/GN solver at ~0.999 survival (measured), i.e. reward ≈ 100.
 
 ## 5. Reviewing the results
 
@@ -281,19 +284,19 @@ A run folder contains:
 tensorboard --logdir results/          # or one run dir; port 6006; SSH-tunnel if remote
 ```
 
-Post-refactor baselines (main-magnet σ=1e-2, measured 2026-10-12): the **zero-corrector
-reward itself spans −44…−126 depending on the drawn lattice** (four fresh processes), and
-random policy ≈ that process's zero-action baseline. On a single frozen lattice, a
-linearized box-constrained least-squares solve recovers only **≈ +3…+6** above its own
-baseline (−49.3 → −44.0 with ~10/96 correctors saturated) — with σ this large even
-near-optimal correctors cannot restore the orbit, and the binding limit is **aperture
-loss**, not ±25 A authority. **Read the reward with care under this model:** beam loss
-starts at zero action (S reaches 0 at some BPMs), and dead BPMs contribute (0,0) to the
-RMS — **losing beam RAISES the reward; the metric is confounded with survival.** Check
-every gain against the S vector (all S ≈ 10.014 = full survival; `verify_policy.py`
-prints both) or it may just be a darker machine. A healthy run plateaus at *its own*
-zero-action baseline through ep 2500 (warmup), then improves by a few units while S
-stays up.
+Baselines at the 1e-2 default (facade era, measured 2026-10-22,
+`verify_signal_task.py` / `probe_seed_deficit.py` / `eval_phase3.py`): the machine
+is **unrecoverable** — zero current 0.061–0.269 of full S (53–68/73 BPMs dead),
+and the FULL policy ladder (100 random ±25 A, box-constrained centroid LS,
+GN re-linearized, S-greedy hill) lands within **+0.2 pt** of the zero-current
+baseline. TD3 3k on the healthiest draw finished at **26.9 vs baseline 26.87** —
+exactly on it: no learnable gradient exists, and the 12-run ablation flatlines
+in every cell. Two things this regime proves: the S-max reward stays monotone
+in survival even here, while the legacy −1000·RMS metric **inverts** (it scored
+*killing* the beam +3.4 above baseline on seed 20261101) — pre-migration
+checkpoints/logs are therefore not comparable. A "healthy" run at this default
+is one that discovers doing nothing IS optimal; interpret reward movement as
+exploration noise.
 
 ### Evaluating a saved policy
 
@@ -306,10 +309,13 @@ python ../AGS-sim-env/soct_launcher.py --inference --nepisodes 3 \
 per-checkpoint reward vs zero-action plus the min/max S survival check
 (`python ../AGS-sim-env/verify_policy.py <run_dir>` from SOCT).
 
-Note: **misalignments are re-drawn unseeded at env construction**, so every new process
-(verification, `--inference` runs, retraining) evaluates a *different frozen lattice*.
-Under the main-magnet model the run-to-run spread is **tens of units**, not a few —
-compare checkpoints/inference runs only within one process, or seed the draw yourself.
+Note: **misalignments are re-drawn unseeded at env construction** (`redraw_
+misalignments!` on Julia's global RNG; production `ags_env.py` does not seed —
+only the research stack honors `AGS_LATTICE_SEED`), so every new process
+(verification, `--inference` runs, retraining) evaluates a *different frozen
+lattice*. At the 1e-2 default the zero-action reward spans **~6–27** across
+draws (survival 0.06–0.27 × 100) — compare checkpoints/inference runs only
+within one process; the research stack pins the draw via `AGS_LATTICE_SEED`.
 
 ## 6. Notes
 

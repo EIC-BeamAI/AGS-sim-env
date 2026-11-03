@@ -38,14 +38,29 @@ _SYM = {k: jl.Symbol(k) for k in ("S", "Dx", "Dy")}
 # RL configuration (Python owns these; see run_guide.md §4)
 # =====================================================================
 
-#: Reward = -LAMBDA * RMS(signal-weighted orbit offset). Maximize; 0 is best.
-LAMBDA_REWARD = 1000.0
+#: TASK OBJECTIVE: max out BPM signal S (survived bunch intensity) along the
+#: whole line.  reward = 100*mean(S/S_full) + SHAPE_W*(1 - min(RMS/RMS_ref, 3))
+#: in [0, 100]. Primary term IS the objective: losing beam can never raise
+#: the reward. The tie-breaker (the legacy centroid objective, down-weighted)
+#: breaks full-survival plateau ties and supplies gradient where dS/dI == 0
+#: (S is a staircase: it moves only when macroparticles clip apertures).
+#: S_full and RMS_ref are measured on THIS lattice at construction (the RMS
+#: convention here is mean-over-concat; do not mix with the old Julia
+#: /n_bpm = sqrt(2)x convention from study runs before 2026-10-21).
+SHAPE_W = 0.1
+SHAPE_CLIP = 3.0
 
 #: Dipole-corrector current bounds (A) — the binding performance limit.
 ACTION_BOUND = 25.0
 
-#: Default main-magnet misalignment sigma (m), matching the mm_* draws in
-#: tracking.jl. Drawn once per env construction (frozen lattice per process).
+#: Default main-magnet misalignment sigma (m) = the src/tracking.jl
+#: load-time physics default (1e-2): the beam dies at sector C
+#: (pue_c04), mean S ~0.18 of full, 60/73 BPMs dead, and no corrector
+#: action at +-25 A recovers it (measured 2026-10-22, study doc
+#: env_research/env_design_study.md sections 6-7 / check_beam_newenv.py).
+#: Zero action and typical play sit at reward ~17-18; the env stays
+#: faithful to the physics default by design. The former RL task point
+#: (1.5e-3, recoverable ~1% scrap) is archived in study doc section 6.
 DEFAULT_MISALIGN_SIGMA = 1e-2
 
 #: BPM electrical noise (RMS) on S, Dx, Dy; zero keeps the env deterministic.
@@ -56,9 +71,13 @@ class AGSEnv(gym.Env):
     """
     Gymnasium environment for AGS injection using the Julia tracking kernel.
 
-    The agent sets 96 dipole-corrector currents to center the beam at all 73
-    BPMs. Reward = -1000 * RMS(Dx^2 + Dy^2 over BPMs); a fully centered,
-    fully surviving beam scores 0 (total beam loss ALSO scores ~0 — read S!).
+    The agent sets 96 dipole-corrector currents to MAX OUT the BPM signal S
+    (survived bunch intensity) along the whole line:
+    reward = 100*mean(S/s_full) + 0.1*(1 - min(RMS/rms_ref, 3)) in [0, 100].
+    Losing beam can never raise the reward; the centering tie-breaker only
+    orders full-survival plateau configs and supplies gradient where the
+    (staircase) survival is locally flat. s_full and rms_ref are measured on
+    the constructed lattice at __init__.
 
     State (315): 73 BPMs x (S, Dx, Dy) interleaved, sorted by BPM name,
                  then 48 sorted I_dhc + 48 sorted I_dvc currents.
@@ -110,10 +129,20 @@ class AGSEnv(gym.Env):
 
         # Configure the machine (frozen lattice for this process)
         _SET_TUNES(self.h_tune, self.v_tune)
-        _REDRAW(self.misalign_sigma)
-        _ZERO_CURRENTS()
         self._dhc = np.zeros(self.n_dhc, dtype=np.float64)
         self._dvc = np.zeros(self.n_dvc, dtype=np.float64)
+
+        # Reward reference constants, measured on this machine at build time:
+        #   s_full  = full-survival BPM signal (zero-misalignment pass)
+        #   rms_ref = zero-current orbit RMS on the task lattice (shaper
+        #             denominator, mean-over-concat convention)
+        _REDRAW(0.0)
+        _ZERO_CURRENTS()
+        self.s_full = float(np.max(self._measure()[0]))
+        _REDRAW(self.misalign_sigma)
+        _ZERO_CURRENTS()
+        _, Dx0, Dy0 = self._measure()
+        self.rms_ref = max(float(np.sqrt(np.mean(Dx0 * Dx0 + Dy0 * Dy0))), 1e-12)
 
         self.observation_space = spaces.Box(
             low=np.full(self.state_size, -1000.0, dtype=np.float64),
@@ -147,12 +176,15 @@ class AGSEnv(gym.Env):
             Dy[i] = bpm[_SYM["Dy"]]
         return S, Dx, Dy
 
-    @staticmethod
-    def _reward(Dx, Dy):
-        """-LAMBDA * RMS(signal-weighted orbit offset) — matches tracking.jl's
-        Dx = x_centroid * S convention; total loss also scores ~0 (check S)."""
-        rms = np.sqrt(np.mean(Dx * Dx + Dy * Dy))
-        return -LAMBDA_REWARD * rms
+    def _reward(self, S, Dx, Dy):
+        """Task objective: MAX OUT BPM signal S along the whole line.
+        Primary = 100*mean(clip(S/s_full)); a small down-weighted centering
+        RMS term breaks full-survival plateau ties (never trades beam for
+        cosmetics: quantum of one particle = 100/s_full/n_bpm of primary)."""
+        rel = np.clip(S / self.s_full, 0.0, 1.0)
+        rms = float(np.sqrt(np.mean(Dx * Dx + Dy * Dy)))
+        return 100.0 * float(rel.mean()) + SHAPE_W * (
+            1.0 - min(rms / self.rms_ref, SHAPE_CLIP))
 
     def _state(self, S, Dx, Dy):
         """315-dim vector: [S,Dx,Dy] interleaved per BPM (sorted names), then
@@ -164,7 +196,7 @@ class AGSEnv(gym.Env):
     def _run(self):
         """Measure, assemble state, score reward — the whole per-step pipeline."""
         S, Dx, Dy = self._measure()
-        return self._state(S, Dx, Dy), self._reward(Dx, Dy)
+        return self._state(S, Dx, Dy), self._reward(S, Dx, Dy)
 
     # ------------------------------------------------------------------
     # Gymnasium API
