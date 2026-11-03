@@ -50,8 +50,13 @@ _SYM = {k: jl.Symbol(k) for k in ("S", "Dx", "Dy")}
 SHAPE_W = 0.1
 SHAPE_CLIP = 3.0
 
-#: Dipole-corrector current bounds (A) — the binding performance limit.
-ACTION_BOUND = 25.0
+#: Dipole-corrector current bounds (A). Machine-change decision 2026-10-22:
+#: +-25 A was a modelling choice and binds hard at the 1e-2 default (beam
+#: unrecoverable); authority sweeps (env_research/probe_authority*.py) show
+#: a recoverable band at 1000-1500 A (survival-greedy 0.72-0.99 of full
+#: beam, solutions unsaturated <=1125 A; 2500 A degrades - kicks punch
+#: apertures elsewhere). Set 1500 = machine spec at which the task is real.
+ACTION_BOUND = 1500.0
 
 #: Default main-magnet misalignment sigma (m) = the src/tracking.jl
 #: load-time physics default (1e-2): the beam dies at sector C
