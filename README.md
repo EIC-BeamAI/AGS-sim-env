@@ -35,13 +35,13 @@ Then, to use it from SciOptControlToolkit like a built-in
 ags-install-soct        # idempotent; optional arg: path to the SOCT checkout
 ```
 
-It inserts a guarded `import ags_gymnasium` at the **top** of
+It inserts a guarded `import helpers.ags_gymnasium_registration` at the **top** of
 `jlab_opt_control/__init__.py` (above the TensorFlow-loading import chain) and
 above `import tensorflow` in the driver — placement is load-bearing, because
 embedding libjulia after TensorFlow's runtime segfaults the process. The blocks
 no-op when AGS isn't installed; undo with `git checkout` of the two files.
-Standalone scripts must likewise `import ags_gymnasium` before TensorFlow —
-Gymnasium ≥ 1.0 removed plugin auto-loading, so the import is what registers the
+Standalone scripts must likewise `import helpers.ags_gymnasium_registration` before
+TensorFlow — Gymnasium ≥ 1.0 removed plugin auto-loading, so the import is what registers the
 id (the `gymnasium.env` entry points in `pyproject.toml` only serve
 Gymnasium ≤ 0.29). Or skip everything: `ags-soct-run` needs neither the SOCT
 edit nor an import.
@@ -49,7 +49,7 @@ edit nor an import.
 ### Usage (installed)
 
 ```python
-import ags_gymnasium                # registers the env + starts Julia; before TF!
+import helpers.ags_gymnasium_registration  # registers the env + starts Julia; before TF!
 import gymnasium as gym
 
 env = gym.make("AGS-Injection-v1")  # TimeLimit(1) wrapper, block-layout actions
@@ -67,8 +67,8 @@ print(f"Terminated: {terminated}")    # True (single-step optimization)
 
 ```python
 import os, sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # if run from elsewhere
-from soct_integration import configure_julia
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from helpers.soct_integration import configure_julia
 configure_julia()  # pins Julia 1.12 for juliacall — before juliacall is imported
 
 from ags_env import AGSEnv

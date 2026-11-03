@@ -2,7 +2,7 @@
 
 Usage (after `pip install -e AGS-sim-env`):
 
-    import ags_gymnasium            # registers AGS-Injection-v1 + starts Julia
+    import ags_gymnasium_registration   # registers AGS-Injection-v1 + starts Julia
     import gymnasium as gym
     env = gym.make("AGS-Injection-v1")
 
@@ -15,15 +15,15 @@ import sys
 
 if "tensorflow" in sys.modules and "juliacall" not in sys.modules:
     raise RuntimeError(
-        "ags_gymnasium: TensorFlow is already imported and Julia is not loaded — "
-        "embedding libjulia after TF's runtime segfaults. Import ags_gymnasium "
-        "before TensorFlow (SOCT does this in jlab_opt_control/__init__.py), or "
+        "ags_gymnasium_registration: TensorFlow is already imported and Julia is "
+        "not loaded — embedding libjulia after TF's runtime segfaults. Import this "
+        "before TensorFlow (SOCT does this via the ags-install-soct hooks), or "
         "launch via `ags-soct-run`, which handles the ordering for you."
     )
 
 import gymnasium as gym
 
-from soct_integration import configure_julia
+from helpers.soct_integration import configure_julia
 
 configure_julia()  # must precede juliacall import
 

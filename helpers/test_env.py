@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from soct_integration import configure_julia
+from helpers.soct_integration import configure_julia
 
 configure_julia()  # must run before importing juliacall (pulled in by ags_env)
 

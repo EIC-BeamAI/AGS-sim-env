@@ -29,13 +29,16 @@ def configure_julia():
         libs = sorted(glob.glob(os.path.join(jlhome, "lib", "libjulia.so.1.12*")))
         if libs:
             os.environ["PYTHON_JULIACALL_LIB"] = libs[-1]
-    project = os.path.dirname(os.path.abspath(__file__))
-    if not os.path.isfile(os.path.join(project, "Project.toml")):
+    here = os.path.dirname(os.path.abspath(__file__))
+    for project in (here, os.path.dirname(here)):  # repo root (editable install)
+        if os.path.isfile(os.path.join(project, "Project.toml")):
+            break
+    else:
         raise RuntimeError(
-            "soct_integration: the Julia project (Project.toml) is not next to "
-            "this module — the package was installed non-editable. Reinstall with "
-            "`pip install -e <AGS-sim-env>` or point PYTHON_JULIACALL_PROJECT at "
-            "the AGS-sim-env checkout."
+            "soct_integration: the Julia project (Project.toml) was not found "
+            "next to this module or its parent — the package was installed "
+            "non-editable. Reinstall with `pip install -e <AGS-sim-env>` or "
+            "point PYTHON_JULIACALL_PROJECT at the AGS-sim-env checkout."
         )
     os.environ.setdefault("PYTHON_JULIACALL_PROJECT", project)
 

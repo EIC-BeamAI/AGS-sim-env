@@ -10,7 +10,7 @@ runs SOCT:
 It makes exactly two edits, both guarded so they no-op when AGS isn't
 installed, and both idempotent (a second run changes nothing):
 
-  1. top of  jlab_opt_control/__init__.py            — import ags_gymnasium
+  1. top of  jlab_opt_control/__init__.py            — import helpers.ags_gymnasium_registration
   2. in     jlab_opt_control/drivers/run_continuous.py, above
            `import tensorflow`                        — same import, for
            direct-script mode (`python .../run_continuous.py`)
@@ -41,7 +41,7 @@ _INIT_BLOCK = """{marker}
 # process. Silently skipped when the AGS package (`pip install -e AGS-sim-env`)
 # is not installed in this environment.
 try:
-    import ags_gymnasium  # noqa: F401
+    import helpers.ags_gymnasium_registration  # noqa: F401
 except ModuleNotFoundError:
     pass
 # --- end AGS ---
@@ -52,7 +52,7 @@ _DRV_BLOCK = """{marker}
 # jlab_opt_control/__init__.py). No-op for `python -m` runs — the package
 # __init__ already did it. Silently skipped when AGS is not installed.
 try:
-    import ags_gymnasium  # noqa: F401
+    import helpers.ags_gymnasium_registration  # noqa: F401
 except ModuleNotFoundError:
     pass
 # --- end AGS ---
@@ -83,7 +83,7 @@ def find_soct_root(cli_path=None):
 
 
 def _write(path, marker, src, new_src):
-    if marker in src or "import ags_gymnasium" in src:
+    if marker in src or "ags_gymnasium" in src:  # any AGS hook variant
         print(f"  already registered: {path}")
         return False
     with open(path, "w") as f:

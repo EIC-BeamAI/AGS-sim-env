@@ -10,9 +10,9 @@ single-step optimizer) to maximize beam survival across all 73 BPMs.
 ## 1. Layout
 
 Two repos, side by side. **Everything AGS-specific lives in `AGS-sim-env/`** — the Julia
-environment, the gym wrapper (`ags_env.py`), and the Gymnasium registration module
-(`ags_gymnasium.py`) at the top; helpers (launcher, policy checker, tests, setup) in
-`helpers/` and the docs in `docs/`; `pyproject.toml` makes it a pip-installable package.
+environment, the gym wrapper (`ags_env.py`) at the top; integration/CLI scripts
+(gym registration, launcher, policy checker, tests, setup) in `helpers/` and the
+docs in `docs/`; `pyproject.toml` makes it a pip-installable package.
 `SciOptControlToolkit` is used **unmodified** from upstream `main`:
 
 ```
@@ -22,8 +22,9 @@ environment, the gym wrapper (`ags_env.py`), and the Gymnasium registration modu
 │   ├── CondaPkg.toml         #   pins CondaPkg's embedded Python for PythonCall (§2.3)
 │   ├── README.md             #   entry point: install, quickstart, env spec
 │   ├── ags_env.py            #   gym wrapper — ALL RL glue: state/reward/action/knobs (§4)
-│   ├── ags_gymnasium.py      #   import-once Gymnasium registration (gym.make works after)
-│   ├── helpers/              #   CLI scripts (installed as helpers.* by pyproject)
+│   ├── helpers/              #   the helpers package (installed as helpers.*)
+│   │   ├── ags_gymnasium_registration.py  # import-once Gymnasium registration (gym.make works after)
+│   │   ├── soct_integration.py            # Julia pinning + SOCT env registration
 │   │   ├── soct_launcher.py  #     pin Julia → import juliacall → register env → run SOCT driver
 │   │   ├── soct_setup.py     #     one-shot hook injection into a SOCT checkout
 │   │   ├── verify_policy.py  #     load any checkpoint vs zero-action; reward + S survival
@@ -73,7 +74,7 @@ julia --version             # must print 1.12.x
 ```
 
 Why it matters: the Julia deps (BeamTracking/Beamlines stack) only load under Julia ≥ 1.12, and
-`soct_integration.py` embeds juliacall from `~/.julia/juliaup/julia-1.12*` /
+`helpers/soct_integration.py` embeds juliacall from `~/.julia/juliaup/julia-1.12*` /
 `libjulia.so.1.12*` **only** — a newer default (today's `release` = 1.13.1, which plain
 `juliaup default 1` also resolves to) fails at registration with `RuntimeError:
 soct_integration: no Julia 1.12 under ~/.julia/juliaup`. juliacall embeds whatever juliaup's
@@ -138,10 +139,10 @@ Then register AGS inside SOCT — one command (idempotent; also accepts an expli
 checkout path):
 
 ```bash
-ags-install-soct                # adds the guarded `import ags_gymnasium` blocks
+ags-install-soct                # adds the guarded `import helpers.ags_gymnasium_registration` blocks
 ```
 
-It inserts `import ags_gymnasium` (inside `try/except ModuleNotFoundError`) at the
+It inserts `import helpers.ags_gymnasium_registration` (inside `try/except ModuleNotFoundError`) at the
 top of `jlab_opt_control/__init__.py` and above `import tensorflow` in the driver
 script. The driver resolves `AGS-Injection-v1` like a built-in then — the `gym`
 branch of `create_and_configure_env`. Undo: `git checkout` those two files.
@@ -152,7 +153,7 @@ A cheap wiring check first — it starts Julia but never touches TensorFlow, so 
 is safe (and it isolates "Julia side broken" from "TF side broken"):
 
 ```bash
-python -c "import ags_gymnasium; print('ags_gymnasium import OK')"
+python -c "import helpers.ags_gymnasium_registration; print('registration import OK')"
 ```
 
 Then the real smoke run:
@@ -182,9 +183,9 @@ Expected noise in any run's log (harmless, CPU fallback family):
 **Why it must sit above TensorFlow:** embedding libjulia after TF's runtime
 segfaults the process (SIGSEGV — reproduced even with the Julia env vars pre-staged
 and with `JULIA_NUM_THREADS=1`), and `import jlab_opt_control` loads TF during
-package import (its `__init__` chain reaches Keras). `import ags_gymnasium` in the
+package import (its `__init__` chain reaches Keras). `import helpers.ags_gymnasium_registration` in the
 package `__init__` is therefore the only ordering-correct hook inside SOCT;
-`ags_gymnasium` pins juliacall to the newest `~/.julia/juliaup/julia-1.12*` (export
+the registration module pins juliacall to the newest `~/.julia/juliaup/julia-1.12*` (export
 `PYTHON_JULIACALL_EXE`/`LIB` to override) and starts Julia in this project. Prefer
 zero SOCT edits? `ags-soct-run` (or `python ../AGS-sim-env/helpers/soct_launcher.py`) is a
 self-locating launcher that performs the same ordering and registration outside.

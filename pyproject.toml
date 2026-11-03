@@ -16,17 +16,17 @@ dependencies = [
     "juliacall==0.9.35",
 ]
 # `import gymnasium`; Gymnasium 1.x removed plugin loading, so 1.x users
-# `import ags_gymnasium` once (registers on import) before gym.make().
+# `import helpers.ags_gymnasium_registration` once (registers on import) before gym.make().
 [project.entry-points."gymnasium.env"]
-AGS = "ags_gymnasium"
+AGS = "helpers.ags_gymnasium_registration"
 
 [project.entry-points."gymnasium.envs"]
-AGS = "ags_gymnasium"
+AGS = "helpers.ags_gymnasium_registration"
 
 [project.scripts]
 ags-soct-run = "helpers.soct_launcher:main"
 ags-install-soct = "helpers.soct_setup:main"
 
 [tool.setuptools]
-py-modules = ["ags_env", "ags_gymnasium", "soct_integration"]
+py-modules = ["ags_env"]
 packages = ["helpers"]
