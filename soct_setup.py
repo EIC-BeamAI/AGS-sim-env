@@ -1,4 +1,4 @@
-"""One-shot SOCT setup helper: registers AGS-Injection-v0 in a SciOptControlToolkit checkout.
+"""One-shot SOCT setup helper: registers AGS-Injection-v1 in a SciOptControlToolkit checkout.
 
 Run this AFTER `pip install -e <AGS-sim-env>` in the Python environment that
 runs SOCT:
@@ -32,11 +32,11 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-_INIT_MARKER = "# --- AGS-Injection-v0 registration (added by ags-install-soct) ---"
-_DRV_MARKER = "# --- AGS-Injection-v0 import (added by ags-install-soct) ---"
+_INIT_MARKER = "# --- AGS-Injection-v1 registration (added by ags-install-soct) ---"
+_DRV_MARKER = "# --- AGS-Injection-v1 import (added by ags-install-soct) ---"
 
 _INIT_BLOCK = """{marker}
-# Registers AGS-Injection-v0 in the gymnasium registry. Must run before
+# Registers AGS-Injection-v1 in the gymnasium registry. Must run before
 # TensorFlow is imported: embedding libjulia after TF's runtime segfaults the
 # process. Silently skipped when the AGS package (`pip install -e AGS-sim-env`)
 # is not installed in this environment.
@@ -48,7 +48,7 @@ except ModuleNotFoundError:
 """.format(marker=_INIT_MARKER)
 
 _DRV_BLOCK = """{marker}
-# Registers AGS-Injection-v0 (must precede tensorflow; see
+# Registers AGS-Injection-v1 (must precede tensorflow; see
 # jlab_opt_control/__init__.py). No-op for `python -m` runs — the package
 # __init__ already did it. Silently skipped when AGS is not installed.
 try:
@@ -118,7 +118,7 @@ def patch_driver(pkg_dir):
 def main(argv=None):
     ap = argparse.ArgumentParser(
         prog="ags-install-soct",
-        description="Register AGS-Injection-v0 in a SciOptControlToolkit checkout.")
+        description="Register AGS-Injection-v1 in a SciOptControlToolkit checkout.")
     ap.add_argument("soct_path", nargs="?", default=None,
                     help="path to the SciOptControlToolkit checkout "
                          "(default: auto-detect via the active Python environment)")
@@ -132,8 +132,8 @@ def main(argv=None):
         print("\nDone. Verify with:")
         print("  cd <SciOptControlToolkit>")
         print("  python -m jlab_opt_control.drivers.run_continuous "
-              "--env AGS-Injection-v0 --nepisodes 2 --logdir /tmp/ags_smoke")
-        print("expect: 'Created gym environment: AGS-Injection-v0', 315/96, reward ~6-27 (default death lattice)")
+              "--env AGS-Injection-v1 --nepisodes 2 --logdir /tmp/ags_smoke")
+        print("expect: 'Created gym environment: AGS-Injection-v1', 315/96, reward ~30-60 (default 3.4e-3 lattice)")
     else:
         print("\nNothing to do — SOCT is already set up for AGS.")
     return 0

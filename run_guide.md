@@ -1,11 +1,11 @@
-# AGS `AGS-Injection-v0` + SOCT — Quickstart
+# AGS `AGS-Injection-v1` + SOCT — Quickstart
 
 Get from clone to a trained-policy run in a few commands. Setup, run, configuration, and results
 only — the reward/state/action design and the physics results live elsewhere.
 
 **What you're running:** a TD3 agent (SOCT `KerasTD3-v0`) tuning 96 dipole-corrector currents in a
-Julia beam-tracking simulation of the AGS injection ring (env `AGS-Injection-v0`, a
-single-step optimizer) to center the beam at all 73 BPMs.
+Julia beam-tracking simulation of the AGS injection ring (env `AGS-Injection-v1`, a
+single-step optimizer) to maximize beam survival across all 73 BPMs.
 
 ## 1. Layout
 
@@ -137,7 +137,7 @@ ags-install-soct                # adds the guarded `import ags_gymnasium` blocks
 
 It inserts `import ags_gymnasium` (inside `try/except ModuleNotFoundError`) at the
 top of `jlab_opt_control/__init__.py` and above `import tensorflow` in the driver
-script. The driver resolves `AGS-Injection-v0` like a built-in then — the `gym`
+script. The driver resolves `AGS-Injection-v1` like a built-in then — the `gym`
 branch of `create_and_configure_env`. Undo: `git checkout` those two files.
 
 ### 2.5 Verify
@@ -154,16 +154,17 @@ Then the real smoke run:
 ```bash
 cd SciOptControlToolkit                # any cwd works; logdirs/paths are self-located
 python -m jlab_opt_control.drivers.run_continuous \
-    --env AGS-Injection-v0 --nepisodes 2 --logdir /tmp/ags_smoke
+    --env AGS-Injection-v1 --nepisodes 2 --logdir /tmp/ags_smoke
 ```
 
-Look for `Created gym environment: AGS-Injection-v0`, `Size of State Space -> 315`,
-`Size of Action Space -> 96`. The default machine (mm σ = 1e-2 == tracking.jl's
-physics default) is a **death lattice**: the beam dies at sector C, so zero-action
-reward sits **≈ 6–27** depending on the per-process draw, and NO policy recovers it.
-Any value in that band with 315/96 = wiring success — do NOT expect learning here
-(§5). For a learnable task register with `misalign_sigma=1.5e-3`. Pre-migration
-logs are not comparable (different reward scale and lattice). First run compiles
+Look for `Created gym environment: AGS-Injection-v1`, `Size of State Space -> 315`,
+`Size of Action Space -> 96`. The default machine (mm σ = 3.4e-3, lattice seed
+20261022) is a **hard-but-learnable lattice**: zero-action reward **≈ 40**
+on this seed (~55 median over fresh draws), good play reaches 95–100. Expect the
+2-episode smoke to land **~30–60** (random/early-TD3 actions are net harmful at
+this σ) — 315/96 plus a value in that band = wiring success (§5). The legacy
+`AGS-Injection-v0` (pre-2026-10-21, −1000·RMS centering reward) is NOT
+registered and its logs are not comparable. First run compiles
 the Julia stack (a few minutes); dead-BPM episodes measure fast (~40–100 ms).
 
 Expected noise in any run's log (harmless, CPU fallback family):
@@ -193,7 +194,7 @@ mean success; the `custom` marker only appears on an unpatched checkout.
 cd SciOptControlToolkit                  # git hash + relative logdirs are CWD-based
 conda activate jlab_opt_control
 python -m jlab_opt_control.drivers.run_continuous \
-    --env AGS-Injection-v0 --agent KerasTD3-v0 --nepisodes 10000 \
+    --env AGS-Injection-v1 --agent KerasTD3-v0 --nepisodes 10000 \
     --inference_interval 50 --nepisode_avg 20 \
     --logdir results/ags_td3
 ```
@@ -213,7 +214,7 @@ Those numbers do NOT apply to the main-magnet model — re-baseline from §5 ins
 
 | flag | default | note |
 |---|---|---|
-| `--env` | `Pendulum-v1` (SOCT default) | pass `--env AGS-Injection-v0`; other SOCT/gym envs still reachable |
+| `--env` | `Pendulum-v1` (SOCT default) | pass `--env AGS-Injection-v1`; other SOCT/gym envs still reachable |
 | `--agent` | `KerasTD3-v0` | |
 | `--nepisodes` | `100` | episodes; each episode is **one env step** (single-step task) |
 | `--nsteps` | `-1` | leave at −1; multi-step TimeLimit is meaningless here |
@@ -244,25 +245,30 @@ There is **no env cfg file**. Knobs (all Python-side, `ags_env.py`):
 
 | knob | where | default | effect |
 |---|---|---|---|
-| `misalign_sigma` | `AGSEnv.__init__` (or `register(...)` kwargs) | `1e-2` (physics default) | main-magnet x misalignment σ (m) over the six `mm_*` groups, drawn **once at env construction** — frozen for the run. **1e-2 = tracking.jl default: death lattice** (zero-action S 0.06–0.27 of full, 53–68/73 BPMs dead, solver ceiling ≈ baseline — study doc §7). Learnable task point: `1.5e-3` (§6, archived). ≤1e-3 lossless (max-S trivial) |
+| `misalign_sigma` | `AGSEnv.__init__` (or `register(...)` kwargs) / env var `AGS_SIGMA_TASK` | `3.4e-3` | main-magnet x misalignment σ (m) over the six `mm_*` groups, drawn **once at env construction** — frozen for the run, from the RNG seeded by `lattice_seed`. **3.4e-3 = task point 2026-10-31** (zero-action ~55% survival median over draws — ≈40 on seed 20261022; RL 99+ at ±50 A — study doc §9). `1e-2` = tracking.jl physics default: death lattice (§7). `1.5e-3` archived (§6); ≤1e-3 lossless (max-S trivial) |
 | `h_tune`, `v_tune` | same | `0.0` | fixed tune-control settings (not actions) |
 | `bpm_noise` | same | `(0, 0, 0)` | electrical RMS noise on S, Dx, Dy (zero = deterministic) |
-| corrector bounds | `ags_env.py` `ACTION_BOUND` | ±25 | action box (A) — the binding performance limit |
+| `lattice_seed` | same | `20261022` | `Random.seed!` on the Julia RNG before the lattice draws — same seed = same lattice (benchmark continuity; §9 eval protocol draws fresh seeds per eval) |
+| `norm_action` | same | `True` | action space `[-1, 1]`, scaled by `ACTION_BOUND` inside `step()`; `False` = raw ampere box |
+| corrector bounds | `ags_env.py` `ACTION_BOUND` / env var `AGS_ACTION_BOUND` | ±50 A | action box scale — learning optimum (§9: 25–100 A workable, ≥500 A collapses) |
 | reward | `ags_env.py` `_reward` | — | `100·mean(S/s_full) + SHAPE_W·(1 − min(RMS/rms_ref, SHAPE_CLIP))`, range 0–100, max = full S; `SHAPE_W=0.1`, `SHAPE_CLIP=3`; `s_full`/`rms_ref` measured per lattice |
 | beam params | `src/tracking.jl` beam block (physics-side, by design) | — | emittance, centroid, dispersion, population |
 
-- **State (315)** — layout identical across the refactor, **old checkpoints stay compatible**:
+- **State (315)** — layout unchanged across the refactor:
   73 BPMs × (S, Dx, Dy) sorted by BPM name + 48 `I_dhc` + 48 `I_dvc` currents.
   `S` = charge·alive_fraction·cal (10.014 = full survival); `Dx/Dy` = surviving-bunch centroid × S.
-- **Action (96)**, box ±25: **block layout** — first 48 = sorted `dhc`, next 48 = sorted `dvc`
-  (the `AGSEnv.step` mapping in `ags_env.py` is now authoritative).
+- **Action (96)** — normalized `[-1, 1]` (× ±50 A) by default: **block layout** —
+  first 48 = sorted `dhc`, next 48 = sorted `dvc` (the `AGSEnv.step` mapping in
+  `ags_env.py` is authoritative). Raw-amp checkpoints from the v0 era are NOT
+  transferable to the normalized space.
 - **Objective / reward**: MAX OUT BPM signal S along the whole line —
   `100 · mean(S/s_full) + 0.1·(1 − min(RMS/rms_ref, 3))` ∈ [0, 100]. Losing
   beam can never raise the reward; the centering term only orders
   full-survival plateau configs (where the staircase S has no gradient).
   The legacy −1000·RMS centroid reward is superseded (it scored total loss
-  ~0 above every live state); the best achievable S at 1.5e-3 is the
-  centroid/GN solver at ~0.999 survival (measured), i.e. reward ≈ 100.
+  ~0 above every live state). At the default 3.4e-3 lattice the S-greedy
+  ceiling is ~99 and trained TD3 reaches 99.3–99.8 (median of last 4
+  checkpoints, lattice 20261022 — study doc §9).
 
 ## 5. Reviewing the results
 
@@ -284,19 +290,18 @@ A run folder contains:
 tensorboard --logdir results/          # or one run dir; port 6006; SSH-tunnel if remote
 ```
 
-Baselines at the 1e-2 default (facade era, measured 2026-10-22,
-`verify_signal_task.py` / `probe_seed_deficit.py` / `eval_phase3.py`): the machine
-is **unrecoverable** — zero current 0.061–0.269 of full S (53–68/73 BPMs dead),
-and the FULL policy ladder (100 random ±25 A, box-constrained centroid LS,
-GN re-linearized, S-greedy hill) lands within **+0.2 pt** of the zero-current
-baseline. TD3 3k on the healthiest draw finished at **26.9 vs baseline 26.87** —
-exactly on it: no learnable gradient exists, and the 12-run ablation flatlines
-in every cell. Two things this regime proves: the S-max reward stays monotone
-in survival even here, while the legacy −1000·RMS metric **inverts** (it scored
-*killing* the beam +3.4 above baseline on seed 20261101) — pre-migration
-checkpoints/logs are therefore not comparable. A "healthy" run at this default
-is one that discovers doing nothing IS optimal; interpret reward movement as
-exploration noise.
+**Baselines at the current default (3.4e-3, lattice 20261022, study doc §9):**
+zero action ≈ 40 on this seed (≈ 54.6 median over fresh draws); S-greedy ≈ 98;
+TD3 from scratch at ±50 A: **99.3–99.8**
+(both arms; the ±1 normalized-action policy is the shipped default). Headline
+statistic MUST be the median over the last 4 periodic checkpoints — single
+checkpoints are phase lotteries (one 500 A chain scored 4 vs 80 across
+snapshots) — evaluated on fresh lattice draws, with the loader guard
+(KerasTD3.load silently scores a fresh actor when a load fails; assert
+`Models loaded successfully` per checkpoint). Historical note: at the old
+1e-2 default the machine was unrecoverable (zero-current ladder within +0.2
+pt at every authority; TD3 landed exactly on do-nothing) — that regime is
+kept in §7 of the study doc and explains the pre-v1 logs.
 
 ### Evaluating a saved policy
 
@@ -309,13 +314,11 @@ python ../AGS-sim-env/soct_launcher.py --inference --nepisodes 3 \
 per-checkpoint reward vs zero-action plus the min/max S survival check
 (`python ../AGS-sim-env/verify_policy.py <run_dir>` from SOCT).
 
-Note: **misalignments are re-drawn unseeded at env construction** (`redraw_
-misalignments!` on Julia's global RNG; production `ags_env.py` does not seed —
-only the research stack honors `AGS_LATTICE_SEED`), so every new process
-(verification, `--inference` runs, retraining) evaluates a *different frozen
-lattice*. At the 1e-2 default the zero-action reward spans **~6–27** across
-draws (survival 0.06–0.27 × 100) — compare checkpoints/inference runs only
-within one process; the research stack pins the draw via `AGS_LATTICE_SEED`.
+Note: lattice draws are **seeded**: `AGSEnv(lattice_seed=20261022)` reseeds
+Julia's global RNG before the redraw, so same seed = same frozen lattice —
+retraining, verification, and `--inference` reproduce each other. Per-§9
+evaluation on *fresh* draws, pass a different `lattice_seed` per eval process.
+Checkpoint-to-checkpoint comparisons must still share one seed.
 
 ## 6. Notes
 

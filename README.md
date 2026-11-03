@@ -29,7 +29,7 @@ pip install -e /path/to/AGS-sim-env   # MUST be editable: the Julia project
 ```
 
 Then, to use it from SciOptControlToolkit like a built-in
-(`python -m jlab_opt_control.drivers.run_continuous --env AGS-Injection-v0`), run:
+(`python -m jlab_opt_control.drivers.run_continuous --env AGS-Injection-v1`), run:
 
 ```bash
 ags-install-soct        # idempotent; optional arg: path to the SOCT checkout
@@ -52,14 +52,14 @@ edit nor an import.
 import ags_gymnasium                # registers the env + starts Julia; before TF!
 import gymnasium as gym
 
-env = gym.make("AGS-Injection-v0")  # TimeLimit(1) wrapper, block-layout actions
+env = gym.make("AGS-Injection-v1")  # TimeLimit(1) wrapper, block-layout actions
 
 state, info = env.reset()
 print(f"State shape: {state.shape}")  # (315,)
 
-action = env.action_space.sample()    # 96-dim, ±25 A
+action = env.action_space.sample()    # 96-dim, normalized [-1, 1] (x50 A)
 next_state, reward, terminated, truncated, info = env.step(action)
-print(f"Reward: {reward}")            # ~6-27 (default = death lattice, see below)
+print(f"Reward: {reward}")            # zero action ~40; good play 95-100
 print(f"Terminated: {terminated}")    # True (single-step optimization)
 ```
 
@@ -75,12 +75,12 @@ from ags_env import AGSEnv
 
 # h_tune / v_tune fixed during episodes but configurable;
 # misalign_sigma = MAIN-MAGNET misalignment sigma (m), drawn ONCE at
-# construction over the six mm_* groups. Default 1e-2 == the src/tracking.jl
-# load-time physics default: the beam dies at sector C (mean S ~0.06-0.27
-# of full, 53-68/73 BPMs dead) and NOTHING at +-25 A recovers it (solvers,
-# greedy, 100 random: all within +0.2 pt of baseline - study doc section 7).
-# Rewards therefore sit ~6-27 with no learnable gradient. For a learnable
-# task pass misalign_sigma=1.5e-3 (archived task point, study doc section 6).
+# construction over the six mm_* groups (from the Julia RNG seeded to
+# lattice_seed=20261022 -> reproducible lattice per seed).
+# Default 3.4e-3 = task point 2026-10-31: hard but learnable (zero action
+# ~55% survival median over draws, ~40 on 20261022; +-50 A reaches 99+; §9).
+# The 1e-2 physics default is a death lattice (beam dies at C; section 7);
+# 1.5e-3 is trivially survivable (archived; section 6).
 env = AGSEnv(
     h_tune=0.0,
     v_tune=0.0,
@@ -97,8 +97,9 @@ env = AGSEnv(
   - 48 I_dvc current values
 
 - **Action space** (96 dimensions):
-  - 48 I_dhc current values (bounded ±25 A)
-  - 48 I_dvc current values (bounded ±25 A)
+  - 48 I_dhc currents, then 48 I_dvc currents, normalized [-1, 1] and
+    scaled by `ACTION_BOUND` (+-50 A default) inside `step()`;
+    `norm_action=False` -> raw ampere box (+-ACTION_BOUND)
 
 - **Objective / reward**: MAX OUT the BPM signal S (survived bunch intensity)
   along the whole line:

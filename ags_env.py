@@ -50,23 +50,24 @@ _SYM = {k: jl.Symbol(k) for k in ("S", "Dx", "Dy")}
 SHAPE_W = 0.1
 SHAPE_CLIP = 3.0
 
-#: Dipole-corrector current bounds (A). Machine-change decision 2026-10-22:
-#: +-25 A was a modelling choice and binds hard at the 1e-2 default (beam
-#: unrecoverable); authority sweeps (env_research/probe_authority*.py) show
-#: a recoverable band at 1000-1500 A (survival-greedy 0.72-0.99 of full
-#: beam, solutions unsaturated <=1125 A; 2500 A degrades - kicks punch
-#: apertures elsewhere). Set 1500 = machine spec at which the task is real.
-ACTION_BOUND = 1500.0
+#: Dipole-corrector current bounds (A). Task point 2026-10-31 (study doc
+#: env_research/env_design_study.md section 9): +-50 A is the learning
+#: optimum -- both TD3 arms reach 99.3-99.8 median there and are jitter-
+#: robust; 25-100 A workable, 150-300 A degraded, >=500 A collapses for
+#: from-scratch training. Greedy ceiling ~0.99 exists at ALL bounds >=50 A,
+#: so larger boxes only make the task harder to LEARN, never more solvable.
+#: Override with env var AGS_ACTION_BOUND (study protocol: 50 at peak).
+ACTION_BOUND = float(os.environ.get("AGS_ACTION_BOUND", "50.0"))
 
-#: Default main-magnet misalignment sigma (m) = the src/tracking.jl
-#: load-time physics default (1e-2): the beam dies at sector C
-#: (pue_c04), mean S ~0.18 of full, 60/73 BPMs dead, and no corrector
-#: action at +-25 A recovers it (measured 2026-10-22, study doc
-#: env_research/env_design_study.md sections 6-7 / check_beam_newenv.py).
-#: Zero action and typical play sit at reward ~17-18; the env stays
-#: faithful to the physics default by design. The former RL task point
-#: (1.5e-3, recoverable ~1% scrap) is archived in study doc section 6.
-DEFAULT_MISALIGN_SIGMA = 1e-2
+#: Default main-magnet misalignment sigma (m) -- task point 2026-10-31.
+#: 3.4e-3 gives a hard-but-learnable lattice: zero action ~40 on the
+#: default lattice 20261022 (~55 median over fresh draws); every BPM is
+#: alive so the LS optimum (~51-54%) is informative; RL reaches 99+ at
+#: +-50 A. The 1e-2 physics default kills the beam at
+#: sector C (mean S ~0.18, 60/73 BPMs dead, LS meaningless); the 1.5e-3
+#: archived point is trivially survivable (~99% uncorrected). See study
+#: doc sections 6-9. Override with env var AGS_SIGMA_TASK.
+DEFAULT_MISALIGN_SIGMA = float(os.environ.get("AGS_SIGMA_TASK", "3.4e-3"))
 
 #: BPM electrical noise (RMS) on S, Dx, Dy; zero keeps the env deterministic.
 DEFAULT_BPM_NOISE = (0.0, 0.0, 0.0)
@@ -86,7 +87,9 @@ class AGSEnv(gym.Env):
 
     State (315): 73 BPMs x (S, Dx, Dy) interleaved, sorted by BPM name,
                  then 48 sorted I_dhc + 48 sorted I_dvc currents.
-    Action (96): block layout — 48 sorted I_dhc, then 48 sorted I_dvc, ±25 A.
+    Action (96): block layout — 48 sorted I_dhc, then 48 sorted I_dvc.
+    Default normalized [-1, 1] scaled by ACTION_BOUND inside step()
+    (norm_action=True); norm_action=False gives raw amp box +-ACTION_BOUND.
     Episode: single-step optimization (terminated=True after one step).
 
     Physics (lattice, apertures, beam, tracking) = src/tracking.jl via the
@@ -101,6 +104,8 @@ class AGSEnv(gym.Env):
         v_tune: float = 0.0,
         misalign_sigma: float = DEFAULT_MISALIGN_SIGMA,
         bpm_noise=DEFAULT_BPM_NOISE,
+        norm_action: bool = True,
+        lattice_seed: int = 20261022,
         render_mode=None,
         **kwargs
     ):
@@ -110,14 +115,30 @@ class AGSEnv(gym.Env):
             v_tune: Vertical tune control setting (fixed during episodes)
             misalign_sigma: Main-magnet misalignment sigma (m); x_offset ~
                 N(0, sigma) drawn ONCE here for all six mm_* groups — the
-                lattice is frozen for the env's life (fresh draw per process).
+                lattice is frozen for the env's life. Draws come from the
+                Julia global RNG seeded to lattice_seed, so the same seed
+                reproduces the same lattice (benchmark continuity).
             bpm_noise: (dS, dX, dY) electrical RMS noise; default zeros.
+            norm_action: True (default) -> action space [-1, 1], scaled by
+                ACTION_BOUND inside step() (R8: keeps exploration/smoothing
+                in action units independent of the physical bound; TD3
+                smoothing sigma 0.2 = 10 A at 50 A bound, but 300 A —
+                lethal — at 1500 A). False -> raw ampere box.
+            lattice_seed: Julia RNG seed before the lattice draws.
             render_mode: Unused.
         """
         self.h_tune = float(h_tune)
         self.v_tune = float(v_tune)
         self.misalign_sigma = float(misalign_sigma)
         self.bpm_noise = tuple(float(x) for x in bpm_noise)
+        self.norm_action = bool(norm_action)
+        self.lattice_seed = int(lattice_seed)
+        self.action_bound = ACTION_BOUND
+        # Main.Random is not bound here (tracking.jl only `import Random:
+        # default_rng`); import into Main via Base.eval because seval wraps
+        # only the final expression and would lose a `using` in an earlier one.
+        jl.seval('Base.eval(Main, :(import Random))')
+        jl.seval(f"Base.eval(Main, :(Random.seed!({self.lattice_seed})))")
 
         # Canonical orders (sorted names) — the state/action contract
         self.bpm_names = sorted(str(n) for n in _AGS.bpm_names())
@@ -154,9 +175,14 @@ class AGSEnv(gym.Env):
             high=np.full(self.state_size, 1000.0, dtype=np.float64),
             dtype=np.float64,
         )
+        if self.norm_action:
+            # normalized action units; step() multiplies by ACTION_BOUND
+            lo, hi = -1.0, 1.0
+        else:
+            lo, hi = -self.action_bound, self.action_bound
         self.action_space = spaces.Box(
-            low=-ACTION_BOUND,
-            high=ACTION_BOUND,
+            low=lo,
+            high=hi,
             shape=(self.action_size,),
             dtype=np.float64,
         )
@@ -231,7 +257,9 @@ class AGSEnv(gym.Env):
 
         Args:
             action: 96-dim, block layout: n_dhc sorted dhc then n_dvc sorted
-                dvc currents, within +/-25 A (clipped defensively).
+                dvc. norm_action: units [-1, 1] (clipped defensively),
+                scaled by ACTION_BOUND here. norm_action=False: amperes,
+                clipped to +-ACTION_BOUND.
 
         Returns:
             state, reward, terminated=True, truncated=False, {}
@@ -241,7 +269,10 @@ class AGSEnv(gym.Env):
             raise ValueError(
                 f"expected action shape ({self.action_size},), got {action.shape}"
             )
-        action = np.clip(action, -ACTION_BOUND, ACTION_BOUND)
+        if self.norm_action:
+            action = np.clip(action, -1.0, 1.0) * self.action_bound
+        else:
+            action = np.clip(action, -self.action_bound, self.action_bound)
 
         self._dhc = action[: self.n_dhc].copy()
         self._dvc = action[self.n_dhc :].copy()

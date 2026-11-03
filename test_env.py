@@ -95,14 +95,23 @@ def test_random_action(env):
 
 
 def test_action_bounds(env):
-    """Test that action bounds are correct."""
-    from ags_env import ACTION_BOUND
-    low = env.action_space.low
-    high = env.action_space.high
-    # invariant: the action box mirrors ags_env.ACTION_BOUND
-    assert np.all(low == -ACTION_BOUND), f"Expected low bound -{ACTION_BOUND}, got {low[0]}"
-    assert np.all(high == ACTION_BOUND), f"Expected high bound {ACTION_BOUND}, got {high[0]}"
-    print(f"✓ Action bounds: [{low[0]}, {high[0]}]")
+    """Normalized action box by default; scaling and raw mode consistent."""
+    from ags_env import AGSEnv, ACTION_BOUND
+    assert env.norm_action, "default env should use normalized actions"
+    assert np.all(env.action_space.low == -1.0) and np.all(env.action_space.high == 1.0), \
+        f"Expected normalized [-1, 1] box, got [{env.action_space.low[0]}, {env.action_space.high[0]}]"
+    assert env.action_bound == ACTION_BOUND
+    # out-of-range normalized action clips to +-ACTION_BOUND amperes inside step
+    env.step(np.full(env.action_size, 2.0))
+    assert np.all(env._dhc == ACTION_BOUND) and np.all(env._dvc == ACTION_BOUND), \
+        "step() did not clip+scale normalized actions to ACTION_BOUND"
+    env.reset()
+    # raw mode: box mirrors ags_env.ACTION_BOUND in amperes
+    raw = AGSEnv(norm_action=False)
+    assert np.all(raw.action_space.low == -ACTION_BOUND) and \
+           np.all(raw.action_space.high == ACTION_BOUND), \
+        f"raw mode should expose +-{ACTION_BOUND}, got [{raw.action_space.low[0]}, {raw.action_space.high[0]}]"
+    print(f"✓ Action box: [-1, 1] x {ACTION_BOUND} A (raw mode: +-{ACTION_BOUND} A)")
 
 
 def test_with_gym_spaces():
@@ -113,6 +122,23 @@ def test_with_gym_spaces():
     sample = env.action_space.sample()
     assert env.action_space.contains(sample), "action_space.sample() outside its own box"
     print("✓ gymnasium spaces consistent")
+
+
+def test_lattice_seed():
+    """Same lattice_seed -> identical frozen lattice; different seed -> different."""
+    from ags_env import AGSEnv
+    e1 = AGSEnv(lattice_seed=999)
+    e2 = AGSEnv(lattice_seed=999)
+    e3 = AGSEnv(lattice_seed=12345)
+    r1 = e1.reset()[1]["reward"]
+    r2 = e2.reset()[1]["reward"]
+    r3 = e3.reset()[1]["reward"]
+    assert r1 == r2, f"same lattice_seed gave different rewards: {r1} vs {r2}"
+    assert e1.s_full == e2.s_full and e1.rms_ref == e2.rms_ref, "same seed changed reference constants"
+    assert r1 != r3, f"different lattice_seed gave identical lattice: {r1} == {r3}"
+    print(f"✓ Lattice seeding reproducible (seed 999 -> {r1:.2f}, seed 12345 -> {r3:.2f})")
+
+
 
 
 def main():
@@ -150,7 +176,11 @@ def main():
     test_random_action(env)
     print()
 
-    print("8. Testing gymnasium space consistency...")
+    print("8. Testing lattice seeding reproducibility...")
+    test_lattice_seed()
+    print()
+
+    print("9. Testing gymnasium space consistency...")
     test_with_gym_spaces()
     print()
 
