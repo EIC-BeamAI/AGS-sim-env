@@ -10,9 +10,9 @@ single-step optimizer) to maximize beam survival across all 73 BPMs.
 ## 1. Layout
 
 Two repos, side by side. **Everything AGS-specific lives in `AGS-sim-env/`** — the Julia
-environment, the gym wrapper (`ags_env.py`), the Gymnasium registration module
-(`ags_gymnasium.py`), the launcher (`soct_launcher.py`), and the policy checker
-(`verify_policy.py`); `pyproject.toml` makes it a pip-installable package.
+environment, the gym wrapper (`ags_env.py`), and the Gymnasium registration module
+(`ags_gymnasium.py`) at the top; helpers (launcher, policy checker, tests, setup) in
+`helpers/` and the docs in `docs/`; `pyproject.toml` makes it a pip-installable package.
 `SciOptControlToolkit` is used **unmodified** from upstream `main`:
 
 ```
@@ -20,10 +20,16 @@ environment, the gym wrapper (`ags_env.py`), the Gymnasium registration module
 ├── AGS-sim-env/              # the environment (Julia project + Python glue, all tracked here)
 │   ├── pyproject.toml        #   pip-installable (editable!), gymnasium entry points, ags-soct-run
 │   ├── CondaPkg.toml         #   pins CondaPkg's embedded Python for PythonCall (§2.3)
+│   ├── README.md             #   entry point: install, quickstart, env spec
 │   ├── ags_env.py            #   gym wrapper — ALL RL glue: state/reward/action/knobs (§4)
 │   ├── ags_gymnasium.py      #   import-once Gymnasium registration (gym.make works after)
-│   ├── soct_launcher.py      #   pin Julia → import juliacall → register env → run SOCT driver
-│   ├── verify_policy.py      #   load any checkpoint vs zero-action; prints reward + S survival
+│   ├── helpers/              #   CLI scripts (installed as helpers.* by pyproject)
+│   │   ├── soct_launcher.py  #     pin Julia → import juliacall → register env → run SOCT driver
+│   │   ├── soct_setup.py     #     one-shot hook injection into a SOCT checkout
+│   │   ├── verify_policy.py  #     load any checkpoint vs zero-action; reward + S survival
+│   │   └── test_env.py       #     9-check smoke suite: spaces, bounds, seeding, step
+│   ├── docs/
+│   │   └── run_guide.md      #   this guide
 │   └── src/
 │       ├── AGS_GymEnv.jl     #   THIN facade: include(tracking.jl) + primitives only
 │       ├── tracking.jl       #   PHYSICS single source: machine, beam, tracking kernel
@@ -180,7 +186,7 @@ package import (its `__init__` chain reaches Keras). `import ags_gymnasium` in t
 package `__init__` is therefore the only ordering-correct hook inside SOCT;
 `ags_gymnasium` pins juliacall to the newest `~/.julia/juliaup/julia-1.12*` (export
 `PYTHON_JULIACALL_EXE`/`LIB` to override) and starts Julia in this project. Prefer
-zero SOCT edits? `ags-soct-run` (or `python ../AGS-sim-env/soct_launcher.py`) is a
+zero SOCT edits? `ags-soct-run` (or `python ../AGS-sim-env/helpers/soct_launcher.py`) is a
 self-locating launcher that performs the same ordering and registration outside.
 With SOCT already patched the launcher resolves through the gym registry too, so
 it prints `Created gym environment` instead of `Created custom environment` — both
@@ -306,13 +312,13 @@ kept in §7 of the study doc and explains the pre-v1 logs.
 ### Evaluating a saved policy
 
 ```bash
-python ../AGS-sim-env/soct_launcher.py --inference --nepisodes 3 \
+python ../AGS-sim-env/helpers/soct_launcher.py --inference --nepisodes 3 \
     --load_model <run>/models/epoch_10000 --logdir /tmp/eval
 ```
 
-`AGS-sim-env/verify_policy.py` additionally loads every checkpoint dir you point it at and prints
-per-checkpoint reward vs zero-action plus the min/max S survival check
-(`python ../AGS-sim-env/verify_policy.py <run_dir>` from SOCT).
+`AGS-sim-env/helpers/verify_policy.py` additionally loads every checkpoint dir you point
+it at and prints per-checkpoint reward vs zero-action plus the min/max S survival check
+(`python ../AGS-sim-env/helpers/verify_policy.py <run_dir>` from SOCT).
 
 Note: lattice draws are **seeded**: `AGSEnv(lattice_seed=20261022)` reseeds
 Julia's global RNG before the redraw, so same seed = same frozen lattice —

@@ -24,9 +24,9 @@ AGS = "ags_gymnasium"
 AGS = "ags_gymnasium"
 
 [project.scripts]
-ags-soct-run = "soct_launcher:main"
-ags-install-soct = "soct_setup:main"
+ags-soct-run = "helpers.soct_launcher:main"
+ags-install-soct = "helpers.soct_setup:main"
 
 [tool.setuptools]
-py-modules = ["ags_env", "ags_gymnasium", "soct_integration", "soct_launcher",
-              "soct_setup"]
+py-modules = ["ags_env", "ags_gymnasium", "soct_integration"]
+packages = ["helpers"]

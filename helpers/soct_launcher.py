@@ -23,7 +23,7 @@ git hash and writes relative logdirs there:
 import os
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root
 sys.path.insert(0, HERE)
 
 from soct_integration import configure_julia, register_env

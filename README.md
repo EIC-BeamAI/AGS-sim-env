@@ -15,8 +15,8 @@ Julia beam-tracking simulation via [juliacall](https://github.com/JuliaPy/Python
 lives in `src/tracking.jl` — the single source of truth; `src/AGS_GymEnv.jl` is a thin
 facade exposing only measurement/control primitives, and all RL logic (state assembly,
 reward, action layout, knobs) lives in `ags_env.py`. To train an agent with
-SciOptControlToolkit, use `soct_launcher.py` / the `ags-soct-run` console script — see
-`run_guide.md` for the full quickstart.
+SciOptControlToolkit, use `helpers/soct_launcher.py` / the `ags-soct-run` console
+script — see `docs/run_guide.md` for the full quickstart.
 
 ### Installation
 
@@ -119,7 +119,7 @@ env = AGSEnv(
 Run the test suite:
 
 ```bash
-python test_env.py
+python helpers/test_env.py
 ```
 
 ## Julia Usage

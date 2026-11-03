@@ -30,7 +30,7 @@ import py_compile
 import re
 import sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # repo root
 
 _INIT_MARKER = "# --- AGS-Injection-v1 registration (added by ags-install-soct) ---"
 _DRV_MARKER = "# --- AGS-Injection-v1 import (added by ags-install-soct) ---"

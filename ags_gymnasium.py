@@ -9,7 +9,7 @@ Usage (after `pip install -e AGS-sim-env`):
 IMPORTANT: import this module BEFORE importing TensorFlow. It eagerly imports
 juliacall (via ags_env); libjulia loaded after TensorFlow's runtime segfaults
 (observed exit 139 with TF 2.21). For SOCT training runs, prefer
-`soct_launcher.py` / `ags-soct-run`, which handle the import order for you.
+`helpers/soct_launcher.py` / `ags-soct-run`, which handle the import order for you.
 """
 import sys
 

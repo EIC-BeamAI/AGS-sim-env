@@ -35,7 +35,7 @@ _MEASURE = _AGS.measure
 _SYM = {k: jl.Symbol(k) for k in ("S", "Dx", "Dy")}
 
 # =====================================================================
-# RL configuration (Python owns these; see run_guide.md §4)
+# RL configuration (Python owns these; see docs/run_guide.md §4)
 # =====================================================================
 
 #: TASK OBJECTIVE: max out BPM signal S (survived bunch intensity) along the
