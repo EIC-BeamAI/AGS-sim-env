@@ -41,14 +41,14 @@ def configure_julia():
 
 
 def register_env(soct_envs):
-    """Register AGS-Injection-v0 in SOCT's env registry (idempotent).
+    """Register AGS-Injection-v1 in SOCT's env registry (idempotent).
 
     entry_point resolves via sys.path — callers must have inserted this
     directory first so `ags_env` is importable as a top-level module.
     """
-    if "AGS-Injection-v0" not in soct_envs.list_registered_modules():
+    if "AGS-Injection-v1" not in soct_envs.list_registered_modules():
         soct_envs.register(
-            id="AGS-Injection-v0",
+            id="AGS-Injection-v1",
             entry_point="ags_env:AGSEnv",
             kwargs={"max_episode_steps": 1},
         )

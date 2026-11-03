@@ -8,7 +8,7 @@ used unmodified. The launcher:
      PYTHON_JULIACALL_EXE/LIB exports if your layout differs),
   2. starts Julia directly inside this project (PYTHON_JULIACALL_PROJECT),
   3. imports juliacall BEFORE TensorFlow (see ags_env.py),
-  4. registers AGS-Injection-v0 in SOCT's env registry,
+  4. registers AGS-Injection-v1 in SOCT's env registry,
   5. hands off to jlab_opt_control.drivers.run_continuous.main().
 
 Run from inside the SciOptControlToolkit checkout so the driver records its
@@ -17,7 +17,7 @@ git hash and writes relative logdirs there:
     cd SciOptControlToolkit
     conda activate jlab_opt_control
     python ../AGS-sim-env/soct_launcher.py \
-        --env AGS-Injection-v0 --agent KerasTD3-v0 --nepisodes 10000 \
+        --env AGS-Injection-v1 --agent KerasTD3-v0 --nepisodes 10000 \
         --inference_interval 50 --nepisode_avg 20 --logdir results/ags_td3
 """
 import os
@@ -45,7 +45,7 @@ from jlab_opt_control.drivers.run_continuous import main as run_driver  # noqa: 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
     if "--env" not in argv:  # AGS is this launcher's purpose; SOCT defaults to Pendulum
-        argv = ["--env", "AGS-Injection-v0"] + argv
+        argv = ["--env", "AGS-Injection-v1"] + argv
     return run_driver(argv)
 
 
